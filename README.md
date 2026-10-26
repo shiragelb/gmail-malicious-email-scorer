@@ -142,12 +142,38 @@ Then set Apps Script Script properties: `BACKEND_URL`, `REQUEST_SIGNING_SECRET`,
 
 ---
 
-## Tests and evaluation
+## Evaluation
 
-- `pytest` — auth, spoofing, URL intel mocks, prompt injection, scenario score bands, sanitizing, attachments, and more.
-- `python eval/evaluate.py` — precision / recall style metrics on labeled CSV (`phish` / `legit`).
+Offline run on `backend/eval/corpus_v1.csv` (**201** messages: **43** phish, **158** legit). Phishing rows are a Nazario `phishing0.mbox` slice plus short credential templates; legitimate rows are an Enron slice from the Kaggle phishing-email dataset mirror. The synthetic attack suite (`backend/eval/attack_cases.json`) is scored separately so a feed timeout or a 2004-era phish without modern URLs does not get mixed into FPR.
 
-Three built-in QA scenarios (Safe / Suspicious / Malicious) keep demo ranges tight and reproducible.
+**False-positive definitions (benign mail):**
+- **FPR (strict)** — engine verdict is **Malicious**
+- **FPR (alert)** — engine verdict is **Suspicious** or **Malicious** (the sidebar would warn)
+
+Recall treats **Suspicious** as a catch on phishing.
+
+| Slice | Accuracy | Precision | Recall | FPR strict | FPR alert | n |
+| --- | --- | --- | --- | --- | --- | --- |
+| Text classifier | 91% | 100% | 58% | 0% | 0% | 201 |
+| Full engine (offline) | 86% | 100% | 35% | **0%** | **0%** | 201 |
+
+| Attack class | Detected |
+| --- | --- |
+| Poisoned / lookalike URLs | 3/3 |
+| Prompt-injection bodies | 4/4 |
+| Office DDE / macro vs benign “added” workbook | 4/4 |
+
+Reproduce (from `backend/`, LLM off, no live feeds):
+
+```powershell
+python eval/build_corpus.py
+python eval/make_fixtures.py
+python eval/evaluate.py --csv eval/corpus_v1.csv
+```
+
+This is an interview-sized corpus, not a SOC benchmark. Nazario samples from 2004 often lack live malicious URLs and modern lookalikes, so **recall is low on that slice by design** (the engine refuses to invent malware hits). FPR is the number that matters for “will this annoy a real inbox,” and both strict and alert FPR are **0%** on the Enron legit slice.
+
+`pytest` covers auth, spoofing, URL intel mocks, prompt injection, scenario bands, sanitizing, and attachments. Three QA scenarios (Safe / Suspicious / Malicious) stay in `backend/app/scenarios.py`.
 
 ---
 

@@ -1,0 +1,54 @@
+{
+  "text": {
+    "accuracy": 0.9104477611940298,
+    "precision": 1.0,
+    "recall": 0.5813953488372093,
+    "fpr": 0.0,
+    "fnr": 0.4186046511627907,
+    "support": 201.0,
+    "true_positive": 25.0,
+    "true_negative": 158.0,
+    "false_positive": 0.0,
+    "false_negative": 18.0,
+    "fpr_alert": 0.0,
+    "fpr_strict": 0.0
+  },
+  "engine": {
+    "accuracy": 0.8606965174129353,
+    "precision": 1.0,
+    "recall": 0.3488372093023256,
+    "fpr": 0.0,
+    "fnr": 0.6511627906976745,
+    "support": 201.0,
+    "true_positive": 15.0,
+    "true_negative": 158.0,
+    "false_positive": 0.0,
+    "false_negative": 28.0,
+    "fpr_alert": 0.0,
+    "fpr_strict": 0.0
+  },
+  "dataset": {
+    "path": "eval/corpus_v1.csv",
+    "phish": 43.0,
+    "legit": 158.0,
+    "n": 201.0
+  },
+  "attacks": {
+    "url": {
+      "detected": 3.0,
+      "total": 3.0,
+      "rate": 1.0
+    },
+    "injection": {
+      "detected": 4.0,
+      "total": 4.0,
+      "rate": 1.0
+    },
+    "office": {
+      "detected": 4.0,
+      "total": 4.0,
+      "rate": 1.0
+    }
+  },
+  "live": false
+}

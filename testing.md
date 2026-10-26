@@ -73,7 +73,7 @@ The message bodies are in `backend/eval/vectors.py`.
 
 ## 4. Metrics
 
-A malicious vector is a false negative when the verdict is Safe. A benign vector is a false positive when the verdict is Malicious. Suspicious is a catch for a malicious vector and is not a false positive on a benign vector.
+A malicious vector is a false negative when the verdict is Safe. README **FPR (strict)** is a benign vector scored Malicious. **FPR (alert)** is a benign vector scored Suspicious or Malicious. Suspicious is a catch for a malicious vector.
 
 | Metric | Target |
 | --- | --- |
