@@ -1,12 +1,8 @@
 # Deploy the FastAPI scorer to Cloud Run (request-based billing / free-tier friendly).
-# Prerequisites: gcloud CLI, Docker (or Cloud Build), a GCP project with billing (free tier OK).
+# Prerequisites: gcloud CLI, a GCP project with billing (free tier OK).
 #
 # Usage (from repo root):
 #   .\deploy\deploy-cloud-run.ps1 -ProjectId YOUR_PROJECT -Region us-central1
-#
-# Secrets must already exist in Secret Manager (or pass -SkipSecrets and set env vars in console):
-#   scorer-api-key, scorer-signing-secret, anthropic-api-key (optional),
-#   safe-browsing-api-key (optional), urlhaus-auth-key (optional)
 
 param(
     [Parameter(Mandatory = $true)][string]$ProjectId,
@@ -17,17 +13,25 @@ param(
     [switch]$SkipSecrets
 )
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $Image) {
     $Image = "gcr.io/$ProjectId/${Service}:latest"
 }
 
+function Invoke-GCloud {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
+    & gcloud @Args
+    if ($LASTEXITCODE -ne 0) {
+        throw "gcloud failed ($LASTEXITCODE): gcloud $($Args -join ' ')"
+    }
+}
+
 Write-Host "Project=$ProjectId Region=$Region Service=$Service"
-gcloud config set project $ProjectId
+Invoke-GCloud config set project $ProjectId
 
 Write-Host "Building $Image ..."
-gcloud builds submit $RepoRoot --tag $Image
+Invoke-GCloud builds submit $RepoRoot --tag $Image
 
 $fb = if ($FirebaseProjectId) { $FirebaseProjectId } else { $ProjectId }
 $envVars = @(
@@ -57,21 +61,43 @@ $deployArgs = @(
 )
 
 if (-not $SkipSecrets) {
-    $secrets = @(
-        "API_KEY=scorer-api-key:latest",
-        "REQUEST_SIGNING_SECRET=scorer-signing-secret:latest",
-        "ACCOUNT_TOKEN_SECRET=account-token-secret:latest",
-        "ANTHROPIC_API_KEY=anthropic-api-key:latest",
-        "SAFE_BROWSING_API_KEY=safe-browsing-api-key:latest",
-        "URLHAUS_AUTH_KEY=urlhaus-auth-key:latest"
-    ) -join ","
-    $deployArgs += @("--set-secrets", $secrets)
+    $wanted = @(
+        @{ Env = "API_KEY"; Secret = "scorer-api-key" },
+        @{ Env = "REQUEST_SIGNING_SECRET"; Secret = "scorer-signing-secret" },
+        @{ Env = "ACCOUNT_TOKEN_SECRET"; Secret = "account-token-secret" },
+        @{ Env = "ANTHROPIC_API_KEY"; Secret = "anthropic-api-key" },
+        @{ Env = "SAFE_BROWSING_API_KEY"; Secret = "safe-browsing-api-key" },
+        @{ Env = "URLHAUS_AUTH_KEY"; Secret = "urlhaus-auth-key" }
+    )
+    $pairs = @()
+    foreach ($item in $wanted) {
+        gcloud secrets describe $item.Secret 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $pairs += "$($item.Env)=$($item.Secret):latest"
+        } else {
+            Write-Host "Secret $($item.Secret) missing - skipping env $($item.Env)"
+        }
+    }
+    if ($pairs.Count -eq 0) {
+        throw "No secrets found. Run .\deploy\create-secrets.ps1 first."
+    }
+    $deployArgs += @("--set-secrets", ($pairs -join ","))
+}
+
+# Cloud Run default compute SA needs Secret Accessor on each mounted secret.
+$projectNumber = & gcloud projects describe $ProjectId --format "value(projectNumber)"
+$runtimeSa = "serviceAccount:${projectNumber}-compute@developer.gserviceaccount.com"
+if (-not $SkipSecrets) {
+    foreach ($pair in $pairs) {
+        $secretName = ($pair -split "=")[1] -replace ":latest$", ""
+        gcloud secrets add-iam-policy-binding $secretName --member=$runtimeSa --role="roles/secretmanager.secretAccessor" --project=$ProjectId 2>$null | Out-Null
+    }
 }
 
 Write-Host "Deploying to Cloud Run ..."
-& gcloud @deployArgs
+Invoke-GCloud @deployArgs
 
-$url = gcloud run services describe $Service --region $Region --format "value(status.url)"
+$url = & gcloud run services describe $Service --region $Region --format "value(status.url)"
 Write-Host ""
 Write-Host "Service URL: $url"
 Write-Host "Set Apps Script property BACKEND_URL to that URL (no trailing slash)."

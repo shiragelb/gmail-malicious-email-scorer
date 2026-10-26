@@ -16,22 +16,33 @@ param(
     [string]$UrlhausKey = ""
 )
 
-$ErrorActionPreference = "Stop"
-gcloud config set project $ProjectId
-gcloud services enable secretmanager.googleapis.com run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
+# gcloud writes info to stderr; do not treat that as a terminating error.
+$ErrorActionPreference = "Continue"
+
+function Invoke-GCloud {
+    param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Args)
+    & gcloud @Args
+    if ($LASTEXITCODE -ne 0) {
+        throw "gcloud failed ($LASTEXITCODE): gcloud $($Args -join ' ')"
+    }
+}
+
+Invoke-GCloud config set project $ProjectId
+Invoke-GCloud services enable secretmanager.googleapis.com run.googleapis.com cloudbuild.googleapis.com artifactregistry.googleapis.com
 
 function Ensure-Secret([string]$Name, [string]$Value) {
     if (-not $Value) {
         Write-Host "Skipping empty secret $Name"
         return
     }
-    $exists = $false
     gcloud secrets describe $Name 2>$null | Out-Null
-    if ($LASTEXITCODE -eq 0) { $exists = $true }
-    if (-not $exists) {
-        gcloud secrets create $Name --replication-policy=automatic | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        Invoke-GCloud secrets create $Name --replication-policy=automatic
     }
-    $Value | gcloud secrets versions add $Name --data-file=-
+    $Value | & gcloud secrets versions add $Name --data-file=-
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to add version for secret $Name"
+    }
     Write-Host "Updated secret $Name"
 }
 
@@ -55,6 +66,16 @@ if (-not $AccountTokenSecret) {
     $AccountTokenSecret = ([Convert]::ToBase64String($bytes) -replace '[^A-Za-z0-9]', '').Substring(0, 48)
     Write-Host "Generated ACCOUNT_TOKEN_SECRET (Cloud Run only; not needed in Apps Script)"
 }
+
+$outFile = Join-Path (Split-Path -Parent $PSScriptRoot) ".deploy-credentials.txt"
+@"
+# Generated $(Get-Date -Format o) — DO NOT COMMIT. Paste into Apps Script.
+API_KEY=$ApiKey
+REQUEST_SIGNING_SECRET=$SigningSecret
+ACCOUNT_TOKEN_SECRET=$AccountTokenSecret
+PROJECT_ID=$ProjectId
+"@ | Set-Content -Path $outFile -Encoding UTF8
+Write-Host "Also saved credentials to $outFile (gitignored)."
 
 Ensure-Secret "scorer-api-key" $ApiKey
 Ensure-Secret "scorer-signing-secret" $SigningSecret
