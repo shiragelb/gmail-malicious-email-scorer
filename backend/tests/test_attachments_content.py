@@ -98,6 +98,47 @@ def _plain_xlsx() -> bytes:
     return buffer.getvalue()
 
 
+def _xlsx_with_innocent_added() -> bytes:
+    """Contains the substring 'dde' inside 'added' — must not trip office_dde."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types></Types>")
+        archive.writestr("xl/workbook.xml", "<workbook></workbook>")
+        archive.writestr(
+            "xl/sharedStrings.xml",
+            "<sst><si><t>Rows added for charities and address list</t></si></sst>",
+        )
+        archive.writestr(
+            "xl/worksheets/sheet1.xml",
+            "<worksheet><sheetData><row><c><v>1</v></c></row></sheetData></worksheet>",
+        )
+    return buffer.getvalue()
+
+
+def _xlsx_with_dde_formula() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types></Types>")
+        archive.writestr("xl/workbook.xml", "<workbook></workbook>")
+        archive.writestr(
+            "xl/worksheets/sheet1.xml",
+            '<worksheet><sheetData><row><c t="str"><f>=DDE("cmd","/c calc","")</f></c></row></sheetData></worksheet>',
+        )
+    return buffer.getvalue()
+
+
+def _xlsx_with_cmd_pipe() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types></Types>")
+        archive.writestr("xl/workbook.xml", "<workbook></workbook>")
+        archive.writestr(
+            "xl/worksheets/sheet1.xml",
+            "<worksheet><sheetData><row><c><f>=CMD|'/c notepad'!A0</f></c></row></sheetData></worksheet>",
+        )
+    return buffer.getvalue()
+
+
 def _zip_bomb() -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -145,6 +186,24 @@ async def test_xlsm_with_vba_is_flagged():
     report = inspect_attachments([_attachment("sheet.xlsm", _xlsm_with_vba())])
     assert report.active
     assert any(item.code == "office_macro" for item in report.findings)
+
+
+def test_xlsx_with_word_added_is_not_dde():
+    report = inspect_attachments([_attachment("charities.xlsx", _xlsx_with_innocent_added())])
+    assert not any(item.code == "office_dde" for item in report.findings)
+    assert report.active is False
+
+
+def test_xlsx_dde_formula_is_flagged():
+    report = inspect_attachments([_attachment("payload.xlsx", _xlsx_with_dde_formula())])
+    assert report.active
+    assert any(item.code == "office_dde" for item in report.findings)
+
+
+def test_xlsx_cmd_pipe_formula_is_flagged():
+    report = inspect_attachments([_attachment("payload.xlsx", _xlsx_with_cmd_pipe())])
+    assert report.active
+    assert any(item.code == "office_dde" for item in report.findings)
 
 
 @pytest.mark.asyncio

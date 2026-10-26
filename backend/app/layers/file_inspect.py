@@ -63,6 +63,20 @@ _PDF_OPEN_RE = re.compile(r"/(?:OpenAction|AA)\b", re.IGNORECASE)
 _PDF_LAUNCH_RE = re.compile(r"/Launch\b", re.IGNORECASE)
 _PDF_EMBED_RE = re.compile(r"/EmbeddedFile\b", re.IGNORECASE)
 
+# Real DDE / command-formula patterns — not the substring "dde" (false-positives on "added").
+_OFFICE_DDE_RE = re.compile(
+    r"(?:"
+    r"=\s*DDE(?:AUTO)?\s*\("  # Excel =DDE( / =DDEAUTO(
+    r"|\bDDE(?:AUTO)?\s*\("  # DDE( / DDEAUTO( in formulas or fields
+    r"|=\s*CMD\s*\|"  # Classic =CMD|'/c ...' Excel formula
+    r"|CMD\s*\|\s*['\"]?/?\s*c\b"  # CMD|/c or CMD|'/c
+    r"|=\s*MSEXCEL\s*\|"  # =MSEXCEL|...
+    r"|\bddeLink\b"  # OOXML ddeLink element / relationship
+    r"|Target\s*=\s*[\"']DDE[\"']"  # relationship target DDE
+    r")",
+    re.IGNORECASE,
+)
+
 
 @dataclass
 class FileReport:
@@ -385,7 +399,9 @@ def _inspect_zip_family(report: FileReport, raw: bytes, name: str) -> None:
                         report.urls.append(match)
             for match in _URL_RE.findall(text):
                 report.urls.append(match)
-            if "dde" in text.lower() or "cmd|" in text.lower():
+            if _OFFICE_DDE_RE.search(text) and not any(
+                item.code == "office_dde" for item in report.findings
+            ):
                 report.findings.append(
                     Finding(
                         layer="attachment",
