@@ -1,0 +1,151 @@
+{
+  "rows": [
+    {
+      "id": "sb-phishing",
+      "tier": 2,
+      "role": "malicious",
+      "subject": "Page to review",
+      "expect_verdict": "Malicious",
+      "verdict": "Malicious",
+      "score": 90,
+      "band": "confirmed",
+      "engine": "anthropic",
+      "providers": [
+        "safebrowsing"
+      ],
+      "elapsed_ms": 5948,
+      "passed": true
+    },
+    {
+      "id": "sb-malware",
+      "tier": 2,
+      "role": "malicious",
+      "subject": "Page to review",
+      "expect_verdict": "Malicious",
+      "verdict": "Malicious",
+      "score": 90,
+      "band": "confirmed",
+      "engine": "anthropic",
+      "providers": [
+        "safebrowsing"
+      ],
+      "elapsed_ms": 4594,
+      "passed": true
+    },
+    {
+      "id": "sb-unwanted",
+      "tier": 2,
+      "role": "malicious",
+      "subject": "Page to review",
+      "expect_verdict": "Malicious",
+      "verdict": "Malicious",
+      "score": 90,
+      "band": "confirmed",
+      "engine": "anthropic",
+      "providers": [
+        "safebrowsing"
+      ],
+      "elapsed_ms": 4894,
+      "passed": true
+    },
+    {
+      "id": "urlhaus-recent",
+      "tier": 2,
+      "role": "malicious",
+      "subject": "Link to review",
+      "expect_verdict": "Malicious",
+      "verdict": "Malicious",
+      "score": 90,
+      "band": "confirmed",
+      "engine": "anthropic",
+      "providers": [
+        "urlhaus"
+      ],
+      "elapsed_ms": 4960,
+      "passed": true
+    },
+    {
+      "id": "benign-github",
+      "tier": 2,
+      "role": "benign",
+      "subject": "Repository",
+      "expect_verdict": "Safe",
+      "verdict": "Safe",
+      "score": 15,
+      "band": "trusted",
+      "engine": "anthropic",
+      "providers": [],
+      "elapsed_ms": 5775,
+      "passed": true
+    },
+    {
+      "id": "benign-example",
+      "tier": 2,
+      "role": "benign",
+      "subject": "Reference",
+      "expect_verdict": "Safe",
+      "verdict": "Safe",
+      "score": 0,
+      "band": "trusted",
+      "engine": "anthropic",
+      "providers": [],
+      "elapsed_ms": 4438,
+      "passed": true
+    },
+    {
+      "id": "headers-pass",
+      "tier": 3,
+      "role": "benign",
+      "subject": "Planning notes",
+      "expect_verdict": "Safe",
+      "verdict": "Safe",
+      "score": 0,
+      "band": "trusted",
+      "engine": "anthropic",
+      "providers": [],
+      "elapsed_ms": 5629,
+      "passed": true
+    },
+    {
+      "id": "headers-fail",
+      "tier": 3,
+      "role": "malicious",
+      "subject": "Your account will be suspended",
+      "expect_verdict": "Malicious",
+      "verdict": "Malicious",
+      "score": 100,
+      "band": "deterministic",
+      "engine": "anthropic",
+      "providers": [],
+      "elapsed_ms": 15422,
+      "passed": true
+    },
+    {
+      "id": "headers-targeted",
+      "tier": 3,
+      "role": "malicious",
+      "subject": "Quick confirmation on your account access",
+      "expect_verdict": "Suspicious",
+      "verdict": "Suspicious",
+      "score": 80,
+      "band": "semantic",
+      "engine": "anthropic",
+      "providers": [],
+      "elapsed_ms": 5812,
+      "passed": true
+    }
+  ],
+  "metrics": {
+    "n": 9,
+    "fnr": 0.0,
+    "fpr": 0.0,
+    "accuracy": 1.0,
+    "passed": 9
+  },
+  "latency_ms": {
+    "local_pipeline": 1631,
+    "full_path_min": 4438,
+    "full_path_max": 15422,
+    "full_path_median": 5629
+  }
+}

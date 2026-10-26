@@ -1,0 +1,218 @@
+:root {
+  --ink: #14201a;
+  --muted: #3d5248;
+  --paper: #e8f0ea;
+  --leaf: #1f6b45;
+  --leaf-deep: #0f3d28;
+  --sand: #c5d4c8;
+  --warn: #8a5a00;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-body: "Source Sans 3", "Segoe UI", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 1.05rem;
+  line-height: 1.55;
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #d7e8dc 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #b9cfc2 0%, transparent 50%),
+    linear-gradient(165deg, #f3f7f4 0%, #dce8e0 45%, #c9d9cf 100%);
+}
+
+.atmosphere {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  opacity: 0.7;
+  z-index: 0;
+}
+
+.top,
+.hero,
+.install,
+.privacy,
+footer {
+  position: relative;
+  z-index: 1;
+}
+
+.top {
+  padding: 1.25rem 1.5rem 0;
+}
+
+.brand {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 4vw, 2.35rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--leaf-deep);
+  animation: rise 0.7s ease-out both;
+}
+
+.hero {
+  max-width: 40rem;
+  padding: 2.5rem 1.5rem 3rem;
+}
+
+.hero h1 {
+  margin: 0 0 0.85rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.65rem, 3.5vw, 2.15rem);
+  font-weight: 600;
+  line-height: 1.2;
+  animation: rise 0.8s 0.08s ease-out both;
+}
+
+.lede {
+  margin: 0 0 1.75rem;
+  color: var(--muted);
+  max-width: 34rem;
+  animation: rise 0.8s 0.16s ease-out both;
+}
+
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  align-items: center;
+  animation: rise 0.8s 0.24s ease-out both;
+}
+
+.primary,
+.ghost {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 0.35rem;
+}
+
+.primary {
+  border: none;
+  background: var(--leaf);
+  color: #f5faf7;
+  padding: 0.7rem 1.25rem;
+  font-weight: 600;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+
+.primary:hover {
+  background: var(--leaf-deep);
+  transform: translateY(-1px);
+}
+
+.secondary {
+  color: var(--leaf-deep);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.status {
+  margin-top: 1rem;
+  color: var(--muted);
+}
+
+.token-panel {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--sand);
+  animation: rise 0.5s ease-out both;
+}
+
+.token-panel h2 {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+}
+
+.token-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.75rem 0;
+}
+
+.token-row code {
+  flex: 1 1 12rem;
+  padding: 0.65rem 0.75rem;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--sand);
+  word-break: break-all;
+  font-size: 0.9rem;
+}
+
+.ghost {
+  border: 1px solid var(--sand);
+  background: rgba(255, 255, 255, 0.5);
+  padding: 0.55rem 0.9rem;
+  color: var(--ink);
+}
+
+.fine {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.install,
+.privacy {
+  max-width: 40rem;
+  padding: 0 1.5rem 2.5rem;
+}
+
+.install h2,
+.privacy h2 {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  margin: 0 0 0.75rem;
+}
+
+.install ol {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.install li + li {
+  margin-top: 0.45rem;
+}
+
+code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.92em;
+}
+
+footer {
+  padding: 1rem 1.5rem 2rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 520px) {
+  .hero {
+    padding-top: 1.5rem;
+  }
+}

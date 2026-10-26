@@ -1,0 +1,236 @@
+[
+  {
+    "source": "Nazario phishing0.mbox",
+    "label": "phish",
+    "subject": "Billing Issues",
+    "from_display": "aw-confirm@ebay.com",
+    "from_address": "aw-confirm@ebay.com",
+    "excerpt": "Dear valued eBay member: We recently have determined that different computers have logged onto your eBay account, and multiple password failures were present before the logons. We ",
+    "score": 15,
+    "verdict": "Safe",
+    "summary": "No strong malicious signals were found in the headers, sender identity, links, or wording.",
+    "reasons": [
+      "The message asks the recipient to confirm a password or account.",
+      "The domain ebay.com has been registered for about 31 years.",
+      "No SPF, DKIM, or DMARC result was included with this message, so authentication was not scored as a failure.",
+      "The language model suggested a different score. The final score stays inside the range supported by the header, identity, and threat-intel checks."
+    ],
+    "engine": "anthropic",
+    "band": "clean",
+    "text_model": "lexical-v1",
+    "text_phishing": true,
+    "url_matches": [],
+    "url_unavailable": [
+      "phishtank_unconfigured"
+    ],
+    "urls_checked": 0
+  },
+  {
+    "source": "Nazario phishing0.mbox",
+    "label": "phish",
+    "subject": "Homeland Security Co AIMT signs Critical U.S. Sales Agreement",
+    "from_display": "Instant On-Line Alert",
+    "from_address": "info@info-mrktng.com",
+    "excerpt": "Untitled Document FLASH ALERT! AIMSI Technologies, Inc. Signs U.S. Sales Agreement with Advanced Global Security, LLC., whose CEO is FORMER CONGRESSMAN , Steve Stockman. Click for ",
+    "score": 15,
+    "verdict": "Safe",
+    "summary": "No strong malicious signals were found in the headers, sender identity, links, or wording.",
+    "reasons": [
+      "No SPF, DKIM, or DMARC result was included with this message, so authentication was not scored as a failure.",
+      "The language model suggested a different score. The final score stays inside the range supported by the header, identity, and threat-intel checks."
+    ],
+    "engine": "anthropic",
+    "band": "clean",
+    "text_model": "lexical-v1",
+    "text_phishing": false,
+    "url_matches": [],
+    "url_unavailable": [
+      "phishtank_unconfigured"
+    ],
+    "urls_checked": 0
+  },
+  {
+    "source": "Nazario phishing0.mbox",
+    "label": "phish",
+    "subject": "Shop the easy way! Find something for everyone on eBay.",
+    "from_display": "eBay",
+    "from_address": "eBay@reply3.ebay.com",
+    "excerpt": "eBay --> http://click3.ebay.com/705443.53897.0.43424 ================================================= Holiday Gift Guide Find the perfect gift for everyone on your list! ==> http:",
+    "score": 15,
+    "verdict": "Safe",
+    "summary": "Likely legitimate eBay promotional email from 2004 era with missing authentication headers raising minor concerns.",
+    "reasons": [
+      "The domain reply3.ebay.com has been registered for about 31 years.",
+      "No SPF, DKIM, or DMARC result was included with this message, so authentication was not scored as a failure.",
+      "Missing SPF, DKIM, and DMARC authentication makes verification impossible"
+    ],
+    "engine": "anthropic",
+    "band": "clean",
+    "text_model": "lexical-v1",
+    "text_phishing": false,
+    "url_matches": [],
+    "url_unavailable": [
+      "phishtank_unconfigured"
+    ],
+    "urls_checked": 0
+  },
+  {
+    "source": "Nazario phishing0.mbox",
+    "label": "phish",
+    "subject": "Confirmation",
+    "from_display": "",
+    "from_address": "exchange-robot@paypal.com",
+    "excerpt": "Congratulations! PayPal has successfully charged $175 to your credit card. Your order tracking number is A866DEC0, and your item will be shipped within three business days. To see ",
+    "score": 15,
+    "verdict": "Safe",
+    "summary": "No strong malicious signals were found in the headers, sender identity, links, or wording.",
+    "reasons": [
+      "The domain paypal.com has been registered for about 27 years.",
+      "No SPF, DKIM, or DMARC result was included with this message, so authentication was not scored as a failure.",
+      "The language model suggested a different score. The final score stays inside the range supported by the header, identity, and threat-intel checks."
+    ],
+    "engine": "anthropic",
+    "band": "clean",
+    "text_model": "lexical-v1",
+    "text_phishing": false,
+    "url_matches": [],
+    "url_unavailable": [],
+    "urls_checked": 0
+  },
+  {
+    "source": "Nazario phishing0.mbox",
+    "label": "phish",
+    "subject": "WARNING-IFRAME-Your account at eBay has been suspended",
+    "from_display": "eBay.com",
+    "from_address": "aw-confirm@ebay.com",
+    "excerpt": "My eBay Need Help? Dear eBay User, We regret to inform you, that we had to block your eBay account because we have been notified that your account may have been compromised by outs",
+    "score": 15,
+    "verdict": "Safe",
+    "summary": "No strong malicious signals were found in the headers, sender identity, links, or wording.",
+    "reasons": [
+      "The message asks the recipient to confirm a password or account. The message threatens to suspend or lock an account. The message uses login language.",
+      "The domain ebay.com has been registered for about 31 years.",
+      "No SPF, DKIM, or DMARC result was included with this message, so authentication was not scored as a failure.",
+      "The language model suggested a different score. The final score stays inside the range supported by the header, identity, and threat-intel checks."
+    ],
+    "engine": "anthropic",
+    "band": "clean",
+    "text_model": "lexical-v1",
+    "text_phishing": true,
+    "url_matches": [],
+    "url_unavailable": [
+      "phishtank_unconfigured"
+    ],
+    "urls_checked": 0
+  },
+  {
+    "source": "Kaggle Enron.csv",
+    "label": "legit",
+    "subject": "re : nom / actual vols for 24 th",
+    "from_display": "",
+    "from_address": "",
+    "excerpt": "- - - - - - - - - - - - - - - - - - - - - - forwarded by sabrae zajac / hou / ect on 05 / 30 / 2001 12 : 07 pm - - - - - - - - - - - - - - - - - - - - - - - - - - -enron capital & ",
+    "score": 15,
+    "verdict": "Safe",
+    "summary": "Forwarded business email regarding gas volume nominations with missing authentication and potential for being spoofed historical data.",
+    "reasons": [
+      "No SPF, DKIM, or DMARC result was included with this message, so authentication was not scored as a failure.",
+      "No SPF, DKIM, or DMARC authentication present"
+    ],
+    "engine": "anthropic",
+    "band": "clean",
+    "text_model": "lexical-v1",
+    "text_phishing": false,
+    "url_matches": [],
+    "url_unavailable": [],
+    "urls_checked": 0
+  },
+  {
+    "source": "Kaggle Enron.csv",
+    "label": "legit",
+    "subject": "enron actuals for march 30 - april 1 , 201",
+    "from_display": "",
+    "from_address": "",
+    "excerpt": "estimated actualsmarch 30 , 2001no flowmarch 31 , 2001no flowapril 1 , 2001teco tap 35 . 000when i receive the actuals from duke i will forward them to you .",
+    "score": 5,
+    "verdict": "Safe",
+    "summary": "Legitimate business email about Enron actuals with missing authentication but no malicious indicators.",
+    "reasons": [
+      "No SPF, DKIM, or DMARC result was included with this message, so authentication was not scored as a failure.",
+      "Missing SPF/DKIM/DMARC authentication"
+    ],
+    "engine": "anthropic",
+    "band": "clean",
+    "text_model": "lexical-v1",
+    "text_phishing": false,
+    "url_matches": [],
+    "url_unavailable": [],
+    "urls_checked": 0
+  },
+  {
+    "source": "Kaggle Enron.csv",
+    "label": "legit",
+    "subject": "# 9760",
+    "from_display": "",
+    "from_address": "",
+    "excerpt": "tried to get fancy with your address and it came back to me !- - - - - - - - - - - - - - - - - - - - - - forwarded by lauri a allen / hol / aepin on 10 / 25 / 2001 01 : 11 pm - - -",
+    "score": 15,
+    "verdict": "Safe",
+    "summary": "Forwarded business email with missing authentication and potential spoofing indicators, but contains legitimate business content about pricing.",
+    "reasons": [
+      "No SPF, DKIM, or DMARC result was included with this message, so authentication was not scored as a failure.",
+      "Missing SPF, DKIM, and DMARC authentication increases spoofing risk"
+    ],
+    "engine": "anthropic",
+    "band": "clean",
+    "text_model": "lexical-v1",
+    "text_phishing": false,
+    "url_matches": [],
+    "url_unavailable": [],
+    "urls_checked": 0
+  },
+  {
+    "source": "Kaggle Enron.csv",
+    "label": "legit",
+    "subject": "fw : pooling contract template",
+    "from_display": "",
+    "from_address": "",
+    "excerpt": "- - - - - original message - - - - -from : christinehauk @ txu . com [ mailto : christinehauk @ txu . com ]sent : monday , november 26 , 2001 9 : 45 amto : buss , jdsubject : pooli",
+    "score": 15,
+    "verdict": "Safe",
+    "summary": "Forwarded email with attachment lacking authentication, minimal content raises slight concern but appears routine.",
+    "reasons": [
+      "No SPF, DKIM, or DMARC result was included with this message, so authentication was not scored as a failure.",
+      "No SPF/DKIM/DMARC authentication present"
+    ],
+    "engine": "anthropic",
+    "band": "clean",
+    "text_model": "lexical-v1",
+    "text_phishing": false,
+    "url_matches": [],
+    "url_unavailable": [],
+    "urls_checked": 0
+  },
+  {
+    "source": "Kaggle Enron.csv",
+    "label": "legit",
+    "subject": "fw : txu lone star pipeline standard pooling agreement",
+    "from_display": "",
+    "from_address": "",
+    "excerpt": "- - - - - original message - - - - -from : jeffsmirin @ txu . com [ mailto : jeffsmirin @ txu . com ]sent : monday , november 26 , 2001 11 : 31 amto : buss , jdsubject : txu lone s",
+    "score": 15,
+    "verdict": "Safe",
+    "summary": "Forwarded business email with attachment reference but missing authentication and containing a slightly suspicious attachment notice.",
+    "reasons": [
+      "No SPF, DKIM, or DMARC result was included with this message, so authentication was not scored as a failure.",
+      "No SPF, DKIM, or DMARC authentication present"
+    ],
+    "engine": "anthropic",
+    "band": "clean",
+    "text_model": "lexical-v1",
+    "text_phishing": false,
+    "url_matches": [],
+    "url_unavailable": [],
+    "urls_checked": 0
+  }
+]

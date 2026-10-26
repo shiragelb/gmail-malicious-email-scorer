@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Malicious Email Scorer</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c2430;
+      --muted: #5c6b7a;
+      --line: #d9e0e7;
+      --paper: #f3f6f8;
+      --card: #ffffff;
+      --safe: #0d7a3f;
+      --safe-bg: #e7f6ee;
+      --suspicious: #8a5a00;
+      --suspicious-bg: #fff4d6;
+      --malicious: #b42318;
+      --malicious-bg: #fdecea;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    header, main { width: min(1080px, calc(100% - 32px)); margin: 0 auto; }
+    header { padding: 28px 0 8px; }
+    h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: -0.03em; }
+    p { line-height: 1.45; }
+    .lede { margin: 0; color: var(--muted); max-width: 68ch; }
+    .providers { margin-top: 12px; color: var(--muted); font-size: 13px; }
+    main { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr); gap: 20px; padding: 20px 0 40px; }
+    form, .result { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+    label { display: block; font-size: 13px; font-weight: 650; margin: 12px 0 6px; }
+    input, textarea { width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; color: inherit; background: #fff; }
+    textarea { min-height: 160px; resize: vertical; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .presets, .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    button { font: inherit; border-radius: 999px; border: 1px solid var(--line); background: #fff; padding: 8px 14px; cursor: pointer; }
+    button.primary { background: var(--ink); color: white; border-color: var(--ink); }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .score { font-size: 56px; line-height: 1; letter-spacing: -0.04em; margin: 0; }
+    .score span { font-size: 18px; color: var(--muted); letter-spacing: 0; }
+    .verdict { display: inline-block; margin-top: 10px; padding: 4px 10px; border-radius: 999px; font-weight: 700; }
+    .safe { color: var(--safe); background: var(--safe-bg); }
+    .suspicious { color: var(--suspicious); background: var(--suspicious-bg); }
+    .malicious { color: var(--malicious); background: var(--malicious-bg); }
+    ul { margin: 12px 0 0; padding-left: 18px; }
+    li { margin: 6px 0; }
+    .trust { color: var(--safe); }
+    .note { color: var(--muted); }
+    .qa { margin-top: 12px; color: var(--muted); font-size: 13px; }
+    .hidden { display: none; }
+    .error { color: var(--malicious); }
+    @media (max-width: 800px) {
+      main, .row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Malicious Email Scorer</h1>
+    <p class="lede">Paste a message, or load one of the three QA scenarios. The score uses authentication headers, sender identity, link reputation, and the wording of the mail.</p>
+    <p class="providers" id="providers">Checking which feeds are configured…</p>
+  </header>
+  <main>
+    <form id="composer">
+      <div class="presets" id="presets"></div>
+      <div id="key-wrap" class="hidden">
+        <label for="api-key">API key</label>
+        <input id="api-key" type="password" autocomplete="off">
+      </div>
+      <div class="row">
+        <div>
+          <label for="from-display">Display name</label>
+          <input id="from-display" value="Jordan Lee">
+        </div>
+        <div>
+          <label for="from-address">From address</label>
+          <input id="from-address" value="jordan.lee@gmail.com">
+        </div>
+      </div>
+      <label for="subject">Subject</label>
+      <input id="subject" value="Planning notes">
+      <label for="auth-header">Authentication-Results header</label>
+      <input id="auth-header" value="mx.google.com; spf=pass smtp.mailfrom=jordan.lee@gmail.com; dkim=pass header.i=@gmail.com; dmarc=pass header.from=gmail.com">
+      <label for="body">Message</label>
+      <textarea id="body">Hi Priya, thanks for sending the notes from yesterday's planning meeting. Thursday at 2pm still works for me.</textarea>
+      <div class="actions">
+        <button class="primary" type="submit" id="score-button">Score this email</button>
+      </div>
+      <p class="error" id="form-error"></p>
+    </form>
+    <section class="result" aria-live="polite">
+      <p class="muted" id="empty">The verdict will show up here.</p>
+      <div id="output" class="hidden">
+        <p class="score" id="score">0 <span>/ 100</span></p>
+        <div class="verdict safe" id="verdict">Safe</div>
+        <p id="summary"></p>
+        <ul id="reasons"></ul>
+        <ul id="mitigations"></ul>
+        <p class="qa" id="qa"></p>
+      </div>
+    </section>
+  </main>
+  <script>
+    const scenarios = new Map();
+    let activeExpected = null;
+    const form = document.querySelector("#composer");
+    const output = document.querySelector("#output");
+    const empty = document.querySelector("#empty");
+    const formError = document.querySelector("#form-error");
+    const scoreButton = document.querySelector("#score-button");
+
+    function field(id) { return document.getElementById(id); }
+
+    function fill(email) {
+      field("from-display").value = email.from_display || "";
+      field("from-address").value = email.from_address || "";
+      field("subject").value = email.subject || "";
+      field("body").value = email.body_text || "";
+      const headers = email.headers || {};
+      const auth = headers["Authentication-Results"] || headers["authentication-results"] || "";
+      field("auth-header").value = auth;
+    }
+
+    function payload() {
+      const auth = field("auth-header").value.trim();
+      return {
+        from_display: field("from-display").value.trim(),
+        from_address: field("from-address").value.trim(),
+        subject: field("subject").value.trim(),
+        body_text: field("body").value,
+        headers: auth ? { "Authentication-Results": auth } : {}
+      };
+    }
+
+    function render(result) {
+      empty.classList.add("hidden");
+      output.classList.remove("hidden");
+      field("score").innerHTML = result.score + " <span>/ 100</span>";
+      const verdict = field("verdict");
+      verdict.textContent = result.verdict;
+      verdict.className = "verdict " + result.verdict.toLowerCase();
+      field("summary").textContent = result.summary;
+      const reasons = field("reasons");
+      reasons.replaceChildren();
+      for (const reason of result.reasons || []) {
+        const item = document.createElement("li");
+        item.textContent = reason.text;
+        item.className = reason.polarity || "";
+        reasons.appendChild(item);
+      }
+      const mitigations = field("mitigations");
+      mitigations.replaceChildren();
+      for (const step of result.mitigations || []) {
+        const item = document.createElement("li");
+        item.textContent = step;
+        mitigations.appendChild(item);
+      }
+      const qa = field("qa");
+      if (!activeExpected) {
+        qa.textContent = "";
+        return;
+      }
+      const inRange = result.score >= activeExpected.expected_min && result.score <= activeExpected.expected_max && result.verdict === activeExpected.expected_verdict;
+      qa.textContent = (inRange ? "Matches" : "Outside") + " the QA range for scenario " + activeExpected.id + ": " + activeExpected.expected_verdict + ", " + activeExpected.expected_min + "–" + activeExpected.expected_max + ".";
+    }
+
+    async function score(email, expected) {
+      activeExpected = expected || null;
+      formError.textContent = "";
+      scoreButton.disabled = true;
+      scoreButton.textContent = "Scoring…";
+      try {
+        const headers = { "Content-Type": "application/json" };
+        const key = field("api-key").value.trim();
+        if (key) headers["X-API-Key"] = key;
+        const response = await fetch("/v1/analyze", {
+          method: "POST",
+          headers,
+          body: JSON.stringify(email || payload())
+        });
+        const body = await response.json();
+        if (!response.ok) {
+          throw new Error(body.detail || "The scorer returned an error.");
+        }
+        render(body);
+      } catch (error) {
+        formError.textContent = error.message || "Could not reach the scorer.";
+      } finally {
+        scoreButton.disabled = false;
+        scoreButton.textContent = "Score this email";
+      }
+    }
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      activeExpected = null;
+      score(payload(), null);
+    });
+
+    fetch("/health").then((response) => response.json()).then((health) => {
+      const providers = health.providers || {};
+      const ready = Object.entries(providers).filter(([, on]) => on).map(([name]) => name);
+      field("providers").textContent = "Active checks: " + (ready.join(", ") || "local checks only") + (health.auth_required ? ". This server requires an API key." : ".");
+      if (health.auth_required) field("key-wrap").classList.remove("hidden");
+    }).catch(() => {
+      field("providers").textContent = "The health check did not respond.";
+    });
+
+    fetch("/v1/demo/scenarios").then((response) => response.json()).then((items) => {
+      const presets = field("presets");
+      for (const scenario of items) {
+        scenarios.set(scenario.id, scenario);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = "Scenario " + scenario.id + ": " + scenario.title;
+        button.addEventListener("click", () => {
+          fill(scenario.email);
+          score(scenario.email, scenario);
+        });
+        presets.appendChild(button);
+      }
+    });
+  </script>
+</body>
+</html>

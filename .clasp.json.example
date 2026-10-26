@@ -1,0 +1,8 @@
+{
+  "scriptId": "PASTE_YOUR_APPS_SCRIPT_PROJECT_ID_HERE",
+  "rootDir": "addon",
+  "scriptExtensions": [".gs", ".js"],
+  "htmlExtensions": [".html"],
+  "jsonExtensions": [".json"],
+  "filePushOrder": ["appsscript.json", "Code.gs"]
+}

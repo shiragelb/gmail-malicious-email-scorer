@@ -1,0 +1,16 @@
+{
+  "name": "gmail-malicious-email-scorer",
+  "private": true,
+  "description": "clasp tooling for the Gmail add-on in addon/",
+  "scripts": {
+    "clasp:login": "clasp login",
+    "clasp:clone": "clasp clone",
+    "clasp:push": "clasp push",
+    "clasp:pull": "clasp pull",
+    "clasp:open": "clasp open",
+    "clasp:status": "clasp status"
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2"
+  }
+}

@@ -1,0 +1,9 @@
+# Optional WHOIS lookups for sender and link domain age.
+# The scorer still runs without this package: missing WHOIS is treated as unknown, not as risk.
+python-whois>=0.9,<1
+
+# Optional phishing BERT. Used only when USE_TRANSFORMERS=true.
+# Install torch from the CPU index first on a machine without CUDA:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install transformers
+transformers>=4.44,<5

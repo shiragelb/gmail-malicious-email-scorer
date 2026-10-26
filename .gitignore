@@ -1,0 +1,40 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+*.pem
+credentials.json
+service-account*.json
+firebase-adminsdk*.json
+# Logs and debug
+*.log
+debug-*.log
+
+# Node / clasp
+node_modules/
+.clasp.json
+.clasprc.json
+
+# Firebase local
+.firebase/
+.firebaserc
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

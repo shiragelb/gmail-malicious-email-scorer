@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MailGuard Score — Malicious Email Scorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="atmosphere" aria-hidden="true"></div>
+  <header class="top">
+    <p class="brand">MailGuard Score</p>
+  </header>
+  <main class="hero">
+    <h1>Know if that email is safe before you click.</h1>
+    <p class="lede">
+      A Gmail sidebar that scores the open message for phishing and malware — no mailbox stored on our servers.
+    </p>
+    <div class="cta">
+      <button type="button" id="signInBtn" class="primary">Sign in with Google</button>
+      <a class="secondary" href="#install">Install steps</a>
+    </div>
+    <p id="authStatus" class="status" hidden></p>
+    <section id="tokenPanel" class="token-panel" hidden>
+      <h2>Your API key</h2>
+      <p>Copy this into the Gmail add-on <strong>User property</strong> named <code>API_KEY</code>.</p>
+      <div class="token-row">
+        <code id="apiKeyValue"></code>
+        <button type="button" id="copyKeyBtn" class="ghost">Copy</button>
+      </div>
+      <p class="fine">Keep this private. Anyone with it can score mail through your account quota.</p>
+    </section>
+  </main>
+  <section id="install" class="install">
+    <h2>Install</h2>
+    <ol>
+      <li>Sign in above and copy your API key.</li>
+      <li>Install the Gmail add-on (test deploy link or Marketplace listing when published).</li>
+      <li>In the Apps Script project, set Script property <code>BACKEND_URL</code> (and <code>REQUEST_SIGNING_SECRET</code> if your host requires it).</li>
+      <li>Set your personal <code>API_KEY</code> as a User property.</li>
+      <li>Open any Gmail message — the sidebar scores it on demand.</li>
+    </ol>
+  </section>
+  <section class="privacy">
+    <h2>Privacy</h2>
+    <p>
+      Scoring is request/response only. We do not keep your mail. Optional AI review uses a redacted body.
+      Report phishing and Block sender only change labels and filters in <em>your</em> Gmail.
+    </p>
+  </section>
+  <footer>
+    <p>MailGuard Score · decision support, not a guarantee</p>
+  </footer>
+  <script src="firebase-config.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
