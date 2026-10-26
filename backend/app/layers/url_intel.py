@@ -8,6 +8,7 @@ import httpx
 
 from app.brands import host_of
 from app.config import Settings, get_settings
+from app.http_retry import request_with_retries
 from app.schemas import UrlIntelReport, UrlMatch
 
 logger = logging.getLogger(__name__)
@@ -140,7 +141,9 @@ async def _query_urlhaus(
     if settings.urlhaus_auth_key:
         headers["Auth-Key"] = settings.urlhaus_auth_key
     try:
-        response = await client.post(URLHAUS_ENDPOINT, data={"url": url}, headers=headers)
+        response = await request_with_retries(
+            client, "POST", URLHAUS_ENDPOINT, data={"url": url}, headers=headers
+        )
         if response.status_code in {401, 403}:
             logger.info("URLhaus requires URLHAUS_AUTH_KEY")
             return None, "auth"
@@ -171,7 +174,9 @@ async def _query_phishtank(
     settings: Settings,
 ) -> tuple[UrlMatch | None, bool]:
     try:
-        response = await client.post(
+        response = await request_with_retries(
+            client,
+            "POST",
             PHISHTANK_ENDPOINT,
             data={"url": url, "format": "json", "app_key": settings.phishtank_api_key},
             headers={"User-Agent": "MaliciousEmailScorer/1.0"},
@@ -219,7 +224,9 @@ async def _query_safe_browsing(
         },
     }
     try:
-        response = await client.post(
+        response = await request_with_retries(
+            client,
+            "POST",
             SAFE_BROWSING_ENDPOINT,
             json=body,
             headers={

@@ -89,4 +89,5 @@ def test_threat_feed_exception_still_returns_a_score(client, monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert 0 <= body["score"] <= 100
-    assert any("timed out" in reason["text"] or "error" in reason["text"].lower() for reason in body["reasons"])
+    # Feed outages must not appear in the Gmail sidebar reasons.
+    assert not any("timed out" in reason["text"].lower() for reason in body["reasons"])

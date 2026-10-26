@@ -7,6 +7,7 @@ import logging
 import httpx
 
 from app.config import Settings, get_settings
+from app.http_retry import request_with_retries
 from app.schemas import UrlMatch
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,9 @@ async def _query_malwarebazaar(
         "Auth-Key": settings.urlhaus_auth_key,
     }
     try:
-        response = await client.post(
+        response = await request_with_retries(
+            client,
+            "POST",
             MALWAREBAZAAR_ENDPOINT,
             data={"query": "get_info", "hash": digest},
             headers=headers,

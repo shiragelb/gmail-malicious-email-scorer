@@ -17,6 +17,9 @@ _UI_SKIP_CODES = frozenset(
         "text_pressure",
         "dns_published",
         "attachment_pressure",
+        # Feed outages never change the score — keep them out of the Gmail sidebar.
+        "intel_unavailable",
+        "hash_intel_unavailable",
     }
 )
 
@@ -286,9 +289,7 @@ def public_reasons(findings: list[Finding]) -> list[Reason]:
             break
         if len(chosen) >= 4:
             break
-    priority_notes = [
-        item for item in notes if item.code in {"intel_unavailable", "hash_intel_unavailable", "prompt_injection"}
-    ]
+    priority_notes = [item for item in notes if item.code == "prompt_injection"]
     other_notes = [item for item in notes if item not in priority_notes]
     if len(chosen) < 3:
         chosen.extend(trusts[:1])
@@ -341,8 +342,6 @@ def _public_text(item: Finding) -> str:
         return "The usual checks could not prove this email really came from who it claims."
     if item.code == "auth_missing":
         return ""
-    if item.code in {"intel_unavailable", "hash_intel_unavailable"}:
-        return "A security check timed out. That did not change the score."
     if item.code.startswith("intel_"):
         return "A security list has already flagged a link or file in this message as dangerous."
     if item.code == "spoofing":

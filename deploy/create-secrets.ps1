@@ -39,9 +39,16 @@ function Ensure-Secret([string]$Name, [string]$Value) {
     if ($LASTEXITCODE -ne 0) {
         Invoke-GCloud secrets create $Name --replication-policy=automatic
     }
-    $Value | & gcloud secrets versions add $Name --data-file=-
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to add version for secret $Name"
+    # Write without a trailing newline — a LF would make API key auth fail against Apps Script.
+    $tmp = Join-Path $env:TEMP ("gcloud-secret-" + $Name + ".txt")
+    [System.IO.File]::WriteAllText($tmp, $Value)
+    try {
+        & gcloud secrets versions add $Name --data-file=$tmp
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to add version for secret $Name"
+        }
+    } finally {
+        Remove-Item $tmp -Force -ErrorAction SilentlyContinue
     }
     Write-Host "Updated secret $Name"
 }

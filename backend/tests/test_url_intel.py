@@ -76,9 +76,16 @@ async def test_reserved_test_url_still_counts_when_the_feed_has_no_record():
 
 
 @pytest.mark.asyncio
-async def test_feed_timeout_adds_no_penalty():
+async def test_feed_timeout_adds_no_penalty(monkeypatch):
+    async def no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("app.http_retry.asyncio.sleep", no_sleep)
+    calls = {"n": 0}
+
     def explode(request: httpx.Request) -> httpx.Response:
         del request
+        calls["n"] += 1
         raise httpx.TimeoutException("timed out")
 
     transport = httpx.MockTransport(explode)
@@ -88,3 +95,28 @@ async def test_feed_timeout_adds_no_penalty():
     assert report.penalty_points == 0
     assert report.matched is False
     assert "urlhaus_error" in report.unavailable
+    assert calls["n"] == 3  # initial attempt + 2 retries
+
+
+@pytest.mark.asyncio
+async def test_feed_retries_then_succeeds(monkeypatch):
+    async def no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("app.http_retry.asyncio.sleep", no_sleep)
+    calls = {"n": 0}
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        del request
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise httpx.TimeoutException("timed out")
+        return httpx.Response(200, json={"query_status": "no_results"})
+
+    transport = httpx.MockTransport(flaky)
+    async with httpx.AsyncClient(transport=transport) as client:
+        report = await screen_urls(["http://example.com/ok"], client=client)
+
+    assert calls["n"] == 3
+    assert "urlhaus_error" not in report.unavailable
+    assert report.penalty_points == 0
