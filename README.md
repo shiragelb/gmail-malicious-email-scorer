@@ -1,6 +1,6 @@
 # Malicious Email Scorer
 
-A Gmail add-on that scores the email you have open and explains the verdict in plain language — built as a Security Analyst home assignment.
+A Gmail add-on that scores the email you have open and explains the verdict.
 
 **What you see in Gmail:** a score from 0–100, a verdict (**Safe** / **Suspicious** / **Malicious**), short reasons, a checklist of what was checked, and actions to report phishing or block the sender.
 
