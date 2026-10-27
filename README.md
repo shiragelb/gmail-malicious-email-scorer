@@ -173,15 +173,40 @@ python eval/evaluate.py --csv eval/corpus_v1.csv
 
 This is an interview-sized corpus, not a SOC benchmark. Nazario samples from 2004 often lack live malicious URLs and modern lookalikes, so **recall is low on that slice by design** (the engine refuses to invent malware hits). FPR is the number that matters for “will this annoy a real inbox,” and both strict and alert FPR are **0%** on the Enron legit slice.
 
-`pytest` covers auth, spoofing, URL intel mocks, prompt injection, scenario bands, sanitizing, and attachments. Three QA scenarios (Safe / Suspicious / Malicious) stay in `backend/app/scenarios.py`.
+---
+
+## Testing
+
+From `backend/`:
+
+```powershell
+python -m pytest
+python eval/evaluate.py --csv eval/corpus_v1.csv
+```
+
+| What | Where | What it proves |
+| --- | --- | --- |
+| Unit / API tests | `backend/tests/` | Auth, HMAC, spoofing, URL intel mocks, sanitizing, scenario score bands, attachment inspection (including DDE false-positive fix), prompt-injection detector |
+| Labeled corpus | `python eval/evaluate.py` | Accuracy, recall, **FPR strict** and **FPR alert** on Nazario + Enron |
+| Synthetic attacks | `backend/eval/attack_cases.json` | Poisoned URLs, jailbreak bodies, DDE/macro vs a benign workbook |
+| Live Gmail demo | Add-on + Cloud Run | Real headers and attachments; three QA scenarios in `backend/app/scenarios.py` |
+| Manual checklist | [`testing.md`](testing.md) | Latency target, how to score a false negative vs false positive in a demo |
+
+The sample CSV (`backend/eval/sample_emails.csv`) is a fast smoke set; `corpus_v1.csv` is the number reported in the table above. Rebuild it with `python eval/build_corpus.py` if the source slices change.
 
 ---
 
 ## Trade-offs and what I’d do next
 
-**Done on purpose:** explainability over opaque ML; no link fetching; LLM as advisor behind clamps; production auth + signing before “more features.”
+**Done on purpose:** explainability over opaque ML; no link fetching; LLM as advisor behind clamps; production auth + signing before “more features.” Prompt-injection phrasing already skips Claude and is recorded as a finding — the response also has an `agent_safety` object (do-not-act / do-not-summarize-verbatim) meant for non-human callers.
 
-**With more time:** Workspace Marketplace listing and polished onboarding; tighter per-user quotas and anomaly alerts; richer attachment sandboxing; continuous eval on a larger phishing corpus; optional SOC export (SIEM) without storing full bodies.
+**With more time — AI agents:** Mailboxes are increasingly read by assistants (summarize this thread, draft a reply, “click the link for me”). Those agents are the audience most hurt by prompt poisoning. Next I would treat `POST /v1/analyze` as a **pre-flight for any agent**:
+
+- Always populate `agent_safety` from the same detector (injection, hidden unicode, “ignore previous instructions”).
+- Return a small, stable contract: `safe_to_follow_instructions`, `do_not_act`, `do_not_summarize_verbatim`, plus the human verdict — so an MCP tool or LangChain step can refuse to execute the email’s asks without parsing the sidebar prose.
+- Document a one-call agent flow: fetch message → score → if `do_not_act`, summarize only the scorer’s reasons, never the attacker’s body.
+
+**Also later:** Workspace Marketplace listing; tighter per-user quotas; richer attachment sandboxing; a larger held-out phishing corpus; optional SIEM export without storing full bodies.
 
 ---
 
