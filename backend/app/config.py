@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     enable_domain_age: bool = True
     use_transformers: bool = False
     transformer_model: str = "ealvaradob/bert-finetuned-phishing"
-    use_onnx_classifier: bool = False
+    use_onnx_classifier: bool = True
     onnx_model_dir: str = ""
     onnx_inference_timeout_ms: int = 500
     new_domain_days: int = 30
@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     @property
     def effective_log_level(self) -> str:
         return (self.log_level or ("INFO" if self.dev_mode else "WARNING")).upper()
+
+    @property
+    def effective_onnx_model_dir(self) -> str:
+        if self.onnx_model_dir.strip():
+            return self.onnx_model_dir.strip()
+        return str(_BACKEND_ROOT / "models" / "phishing-onnx")
 
     @property
     def skip_senders(self) -> frozenset[str]:

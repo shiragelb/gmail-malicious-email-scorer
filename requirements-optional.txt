@@ -2,14 +2,13 @@
 # The scorer still runs without this package: missing WHOIS is treated as unknown, not as risk.
 python-whois>=0.9,<1
 
-# Optional phishing BERT. Used only when USE_TRANSFORMERS=true.
+# Export a DistilBERT phishing checkpoint to ONNX (Docker build does this).
 # Install torch from the CPU index first on a machine without CUDA:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
-#   pip install transformers
+#   pip install transformers onnx
+#   python backend/scripts/export_onnx_classifier.py --out backend/models/phishing-onnx
 transformers>=4.44,<5
+onnx>=1.16,<2
 
-# Optional ONNX phishing classifier. Used only when USE_ONNX_CLASSIFIER=true.
-# Point ONNX_MODEL_DIR at a local folder that already contains model.onnx
-# (and tokenizer.json or a Hugging Face tokenizer). Nothing is downloaded
-# at request time. Do not add this to the Cloud Run image.
-onnxruntime>=1.19,<2
+# Heavy Hugging Face path (USE_TRANSFORMERS=true). Not used on Cloud Run.
+# onnxruntime is in requirements.txt and is the production classifier.

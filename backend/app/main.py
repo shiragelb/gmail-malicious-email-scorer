@@ -42,7 +42,15 @@ from app.security import (
 )
 
 _DEMO = Path(__file__).resolve().parent / "static" / "demo.html"
-_QUIET_LOGGERS = ("uvicorn.access", "httpx", "httpcore", "urllib3", "transformers", "filelock")
+_QUIET_LOGGERS = (
+    "uvicorn.access",
+    "httpx",
+    "httpcore",
+    "urllib3",
+    "transformers",
+    "filelock",
+    "onnxruntime",
+)
 
 _API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
 _DEMO_CSP = (
@@ -80,6 +88,10 @@ async def _lifespan(app: FastAPI):
     timeout = httpx.Timeout(4.0, connect=3.0)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
         app.state.http = client
+        if settings.use_onnx_classifier:
+            from app.layers.onnx_classifier import warmup
+
+            warmup()
         yield
 
 

@@ -1,4 +1,4 @@
-"""Optional ONNX phishing classifier. Missing files or timeouts fall back to lexical scoring."""
+"""ONNX phishing classifier. Missing files or timeouts fall back to lexical scoring."""
 
 from __future__ import annotations
 
@@ -7,43 +7,47 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from pathlib import Path
 
-from app.budget import ledger
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 _session_cache: dict[str, object] = {}
+_tokenizer_cache: dict[str, object] = {}
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="onnx")
 
 
+def warmup() -> None:
+    """Load the session at process start so the first Gmail open is inference."""
+    settings = get_settings()
+    if not settings.use_onnx_classifier:
+        return
+    session = _load_session(settings.effective_onnx_model_dir)
+    if session is None:
+        return
+    try:
+        _infer_probability(session, settings.effective_onnx_model_dir, "warmup")
+    except Exception as exc:
+        logger.info("ONNX warmup failed: %s", type(exc).__name__)
+
+
 def onnx_probability(text: str) -> float | None:
+    """Local CPU inference. Not gated by the paid-API budget cap."""
     settings = get_settings()
     if not settings.use_onnx_classifier or not text:
         return None
-    book = ledger()
-    if book.optional_paused:
-        return None
-    cost = max(0.0, settings.onnx_usd_per_call)
-    if not book.reserve("onnx", cost):
-        return None
     try:
-        session = _load_session(settings.onnx_model_dir)
+        model_dir = settings.effective_onnx_model_dir
+        session = _load_session(model_dir)
         if session is None:
-            if cost:
-                book.release(cost)
             return None
         timeout_s = max(0.05, settings.onnx_inference_timeout_ms / 1000.0)
-        future = _executor.submit(_infer_probability, session, settings.onnx_model_dir, text)
+        future = _executor.submit(_infer_probability, session, model_dir, text)
         return future.result(timeout=timeout_s)
     except FuturesTimeoutError:
         logger.info("ONNX inference exceeded %sms", settings.onnx_inference_timeout_ms)
-        if cost:
-            book.release(cost)
         return None
     except Exception as exc:
         logger.info("ONNX classification failed: %s", type(exc).__name__)
-        if cost:
-            book.release(cost)
         return None
 
 
@@ -87,23 +91,37 @@ def _tokenize(model_dir: str, text: str) -> tuple:
     import numpy as np
 
     clipped = (text or "")[:512]
-    tokenizer_file = Path(model_dir) / "tokenizer.json"
-    if tokenizer_file.is_file():
-        from tokenizers import Tokenizer
-
-        tokenizer = Tokenizer.from_file(str(tokenizer_file))
+    tokenizer = _tokenizer(model_dir)
+    if tokenizer is not None:
         encoded = tokenizer.encode(clipped)
         ids = list(encoded.ids[:128])
         mask = list(encoded.attention_mask[:128]) if encoded.attention_mask else [1] * len(ids)
+        if not ids:
+            ids, mask = [0], [1]
         return (
             np.asarray([ids], dtype=np.int64),
             np.asarray([mask], dtype=np.int64),
         )
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(model_dir, local_files_only=True)
-    batch = tokenizer(clipped, return_tensors="np", truncation=True, max_length=128)
+    hf = AutoTokenizer.from_pretrained(model_dir, local_files_only=True)
+    batch = hf(clipped, return_tensors="np", truncation=True, max_length=128)
     return batch["input_ids"], batch["attention_mask"]
+
+
+def _tokenizer(model_dir: str):
+    cached = _tokenizer_cache.get(model_dir)
+    if cached is not None:
+        return cached
+    tokenizer_file = Path(model_dir) / "tokenizer.json"
+    if not tokenizer_file.is_file():
+        return None
+    from tokenizers import Tokenizer
+
+    tokenizer = Tokenizer.from_file(str(tokenizer_file))
+    tokenizer.enable_truncation(max_length=128)
+    _tokenizer_cache[model_dir] = tokenizer
+    return tokenizer
 
 
 def _label_and_score(model_dir: str, logits) -> tuple[str, float]:
@@ -139,7 +157,7 @@ def _id2label(model_dir: str, size: int) -> dict[int, str]:
 
 def _as_phishing_probability(label: str, score: float) -> float | None:
     token = (label or "").lower()
-    if any(part in token for part in ("phish", "spam", "malicious")) or token in {"label_1", "1"}:
+    if any(part in token for part in ("phish", "spam", "malicious", "fraud")) or token in {"label_1", "1"}:
         return float(score)
     if any(part in token for part in ("ham", "legit", "benign", "safe")) or token in {"label_0", "0"}:
         return float(1.0 - score)

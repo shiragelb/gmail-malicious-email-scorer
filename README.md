@@ -31,8 +31,8 @@ A Gmail add-on that scores the email you have open and explains the verdict.
 │  Optional URL   │                                       │
 │  reputation tap │                                       ▼
 └─────────────────┘                 ┌─────────────────────────────────────┐
-                                    │ Fast path: local layers + feeds     │
-                                    │ Optional: Claude, ONNX, RDAP        │
+                                    │ Fast path: lexical + ONNX wording   │
+                                    │ Optional: Claude, RDAP              │
                                     │ User-triggered: VirusTotal URLs     │
                                     └─────────────────────────────────────┘
 ```
@@ -50,10 +50,10 @@ A Gmail add-on that scores the email you have open and explains the verdict.
 | Authentication & identity | SPF / DKIM / DMARC from Gmail’s stored `Authentication-Results` (not a fresh DNS vote on the live domain alone). Display-name spoofing and lookalike hosts (confusable folding). |
 | Link reputation | Extracted URLs vs URLhaus; PhishTank / Google Safe Browsing when configured. Destinations are **not** fetched. A user-triggered VirusTotal URL check can add evidence; it is off the Gmail open path. |
 | Attachments | PDF / Office / ZIP inspected in-process (macros, scripts, embedded executables, phishing text). Only SHA-256 hashes go to MalwareBazaar — file bytes stay on the scorer. |
-| Wording | Local lexical classifier for credential theft, urgency, payment pressure. Optional ONNX or Hugging Face model (both off by default in production for cold-start cost). |
+| Wording | DistilBERT-class **ONNX** phishing classifier on Cloud Run (CPU, baked into the image). Lexical regex is the fallback and a weak blend so ordinary password-reset mail stays Safe. PyTorch / Hugging Face BERT is **not** shipped. |
 | Domain age | Optional RDAP (fast) or WHOIS for young sender and link domains. Unknown age is not treated as risk. |
 | Meta-analysis | Local correlator always runs. Claude (optional) sees **redacted** evidence, including a sandbox summary when a deep scan finished, and a locked system prompt; output is clamped to the band supported by deterministic checks. Prompt-injection patterns can skip the LLM entirely. |
-| Budget guardrail | Each Cloud Run instance estimates optional spend (Claude, VirusTotal, ONNX) and pauses those pipelines at **$1.00 per UTC day**. Local lexical, auth, feed, and file checks always run. |
+| Budget guardrail | Each Cloud Run instance estimates optional spend (Claude, VirusTotal) and pauses those pipelines at **$1.00 per UTC day**. Local lexical, ONNX, auth, feed, and file checks always run. |
 
 **Verdict bands:** Safe &lt; 40 · Suspicious 40–84 · Malicious ≥ 85.
 
@@ -130,8 +130,8 @@ Open http://127.0.0.1:8000/ for the local demo page (dev mode). Copy `.env.examp
 | `SAFE_BROWSING_API_KEY` / `URLHAUS_AUTH_KEY` | URL / hash intel |
 | `VIRUSTOTAL_API_KEY` | User-triggered URL reputation (`ENABLE_DEEP_SCAN=true`) |
 | `LLM_MODE` | `redacted` (default) · `evidence_only` · `off` |
-| `USE_TRANSFORMERS` | Optional BERT classifier (default off) |
-| `USE_ONNX_CLASSIFIER` | Optional local ONNX phishing model (default off; needs `ONNX_MODEL_DIR`) |
+| `USE_TRANSFORMERS` | Heavy Hugging Face BERT path (default **off**; not in the Cloud Run image) |
+| `USE_ONNX_CLASSIFIER` | CPU ONNX phishing classifier (default **on** in production; lexical fallback if the model is missing or slower than ~500ms) |
 | `ENABLE_DOMAIN_AGE` | RDAP domain-age lookups (default on locally, off on Cloud Run) |
 | `ENABLE_DEEP_SCAN` | On-demand VirusTotal URL check (default off) |
 | `BUDGET_USD_PER_DAY` | Estimated optional-spend cap per instance (default `1`) |
@@ -140,7 +140,7 @@ Apps Script cannot call `localhost`. For a live Gmail demo, deploy to Cloud Run 
 
 ### Cloud Run (summary)
 
-The production image stays at **512Mi**, installs only `requirements.txt`, and does **not** ship BERT, PyTorch, or ONNX. `USE_TRANSFORMERS`, `USE_ONNX_CLASSIFIER`, and `ENABLE_DEEP_SCAN` are `false`. Wording on Cloud Run is the lexical classifier; optional models live in `requirements-optional.txt` for local use.
+The production image is **1Gi**, one CPU. It **does** ship a DistilBERT-class ONNX phishing classifier (exported at image build; no PyTorch in the running container). `USE_ONNX_CLASSIFIER=true`. `USE_TRANSFORMERS` stays `false` — Hugging Face BERT is not installed. If ONNX inference exceeds ~500ms or the files are missing, wording falls back to the lexical classifier. `ENABLE_DEEP_SCAN` stays `false` unless you set a VirusTotal key.
 
 ```powershell
 .\deploy\create-secrets.ps1 -ProjectId YOUR_GCP_PROJECT
@@ -215,7 +215,7 @@ The sample CSV (`backend/eval/sample_emails.csv`) is a fast smoke set; `corpus_v
 - Return a small, stable contract: `safe_to_follow_instructions`, `do_not_act`, `do_not_summarize_verbatim`, plus the human verdict — so an MCP tool or LangChain step can refuse to execute the email’s asks without parsing the sidebar prose.
 - Document a one-call agent flow: fetch message → score → if `do_not_act`, summarize only the scorer’s reasons, never the attacker’s body.
 
-**Cost and deep scan limits:** The $1 cap is estimated API spend on **this process**, reset at UTC midnight — not live GCP billing. With `--max-instances=5` the service-wide ceiling is about $5. VirusTotal receives the bare URL (no userinfo, query, or fragment); the scorer never fetches the link. A VirusTotal report is evidence. It is not a VM and not a guarantee. Three or more malicious engine verdicts can confirm a URL; fewer stay a note and cannot push Safe mail into Malicious.
+**Cost and deep scan limits:** The $1 cap is estimated **paid API** spend (Claude, VirusTotal) on this process, reset at UTC midnight — not live GCP billing, and not the local ONNX classifier. With `--max-instances=5` the service-wide API ceiling is about $5. VirusTotal receives the bare URL (no userinfo, query, or fragment); the scorer never fetches the link. A VirusTotal report is evidence. It is not a VM and not a guarantee. Three or more malicious engine verdicts can confirm a URL; fewer stay a note and cannot push Safe mail into Malicious.
 
 **Also later:** Workspace Marketplace listing; tighter per-user quotas; richer attachment sandboxing; a larger held-out phishing corpus; optional SIEM export without storing full bodies.
 

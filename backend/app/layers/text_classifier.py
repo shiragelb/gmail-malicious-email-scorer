@@ -194,16 +194,16 @@ def _transformer_probability(text: str) -> float | None:
     settings = get_settings()
     if not text:
         return None
-    from app.budget import ledger
-
-    if ledger().optional_paused:
-        return None
     if settings.use_onnx_classifier:
         from app.layers.onnx_classifier import onnx_probability
 
         remote = onnx_probability(text)
         if remote is not None:
             return remote
+    from app.budget import ledger
+
+    if ledger().optional_paused:
+        return None
     if not settings.use_transformers:
         return None
     try:

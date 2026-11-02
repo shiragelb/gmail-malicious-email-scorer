@@ -34,6 +34,9 @@ node_modules/
 .firebase/
 .firebaserc
 
+# ONNX weights exported at Docker build — do not commit.
+backend/models/phishing-onnx/
+
 # IDE / OS
 .DS_Store
 Thumbs.db

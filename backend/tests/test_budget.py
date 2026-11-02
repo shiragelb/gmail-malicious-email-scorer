@@ -64,29 +64,17 @@ async def test_budget_skips_claude_and_keeps_the_local_score(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_budget_skips_onnx_and_lexical_score_still_returns(monkeypatch):
+async def test_budget_does_not_pause_local_onnx(monkeypatch):
     monkeypatch.setenv("USE_ONNX_CLASSIFIER", "true")
-    monkeypatch.setenv("ONNX_MODEL_DIR", "/missing-model")
+    monkeypatch.setenv("ONNX_MODEL_DIR", "/tmp/fake-onnx")
     get_settings.cache_clear()
     reset_ledger()
     ledger().reserve("fill", 1.0)
+    assert ledger().optional_paused is True
 
-    def boom(*args, **kwargs):
-        raise AssertionError("ONNX should not run after the cap")
-
-    monkeypatch.setattr("app.layers.onnx_classifier._load_session", boom)
-    assert onnx_probability("please reset your password immediately") is None
-
-    result = await analyze_email(
-        EmailInput(
-            subject="Reset your password",
-            from_display="Acme Widgets",
-            from_address="help@acme-widgets.test",
-            body_text="Hi, please reset your password here: https://acme-widgets.test/account/reset",
-        )
-    )
-    assert result.verdict == "Safe"
-    assert result.layers["text"]["model"] == "lexical-v1"
+    monkeypatch.setattr("app.layers.onnx_classifier._load_session", lambda model_dir: object())
+    monkeypatch.setattr("app.layers.onnx_classifier._infer_probability", lambda *args, **kwargs: 0.91)
+    assert onnx_probability("please reset your password immediately") == 0.91
     get_settings.cache_clear()
 
 
