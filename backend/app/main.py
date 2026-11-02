@@ -17,10 +17,21 @@ from app.account_tokens import firebase_configured, mint_user_token
 from app.auth_keys import auth_configured, key_is_valid
 from app.config import get_settings
 from app.firebase_auth import verify_firebase_id_token
-from app.layers.domain_age import whois_available
+from app.budget import ledger
+from app.layers.deep_scan import (
+    BudgetPaused,
+    deep_scan_configured,
+    extract_bare_urls,
+    interpret_reports,
+    mint_scan_token,
+    parse_scan_token,
+    poll_analyses,
+    submit_urls,
+)
+from app.layers.domain_age import lookups_enabled, whois_available
 from app.pipeline import analyze_email
 from app.scenarios import SCENARIOS
-from app.schemas import AnalysisResponse, EmailInput
+from app.schemas import AnalysisResponse, DeepScanResultRequest, EmailInput
 from app.security import (
     NonceStore,
     RateLimiter,
@@ -46,6 +57,7 @@ _DOCS_CSP = (
 
 nonces = NonceStore()
 rate_limiter = RateLimiter()
+deep_scan_limiter = RateLimiter()
 
 
 def configure_logging() -> None:
@@ -136,10 +148,15 @@ def health() -> dict:
             "phishtank": bool(settings.phishtank_api_key),
             "safe_browsing": bool(settings.safe_browsing_api_key),
             "anthropic": bool(settings.anthropic_api_key),
+            "virustotal": bool(settings.virustotal_api_key),
             "whois": whois_available(),
+            "domain_age": lookups_enabled(),
             "live_dns": settings.enable_live_dns,
             "transformers": settings.use_transformers,
+            "onnx": settings.use_onnx_classifier,
+            "deep_scan": deep_scan_configured(),
         },
+        "budget": ledger().snapshot(),
     }
 
 
@@ -208,6 +225,166 @@ async def analyze(
         return JSONResponse(status_code=422, content={"detail": safe_validation_errors(exc.errors())})
     http = getattr(request.app.state, "http", None)
     return await analyze_email(email, client=http)
+
+
+@app.post("/v1/deep-scan", response_model=AnalysisResponse)
+async def deep_scan(
+    request: Request,
+    x_api_key: str | None = Header(default=None),
+    x_timestamp: str | None = Header(default=None),
+    x_nonce: str | None = Header(default=None),
+    x_signature: str | None = Header(default=None),
+) -> AnalysisResponse | JSONResponse:
+    settings = get_settings()
+    parsed = await _authorized_json(
+        request,
+        x_api_key=x_api_key,
+        x_timestamp=x_timestamp,
+        x_nonce=x_nonce,
+        x_signature=x_signature,
+        model=EmailInput,
+    )
+    if isinstance(parsed, JSONResponse):
+        return parsed
+    email, http = parsed
+    caller = caller_key(x_api_key, request)
+    if not deep_scan_limiter.allow_per_hour(caller, per_hour=settings.deep_scan_per_hour):
+        raise HTTPException(status_code=429, detail="Too many on-demand scans", headers={"Retry-After": "60"})
+    return await _start_deep_scan(email, client=http)
+
+
+@app.post("/v1/deep-scan/result", response_model=AnalysisResponse)
+async def deep_scan_result(
+    request: Request,
+    x_api_key: str | None = Header(default=None),
+    x_timestamp: str | None = Header(default=None),
+    x_nonce: str | None = Header(default=None),
+    x_signature: str | None = Header(default=None),
+) -> AnalysisResponse | JSONResponse:
+    parsed = await _authorized_json(
+        request,
+        x_api_key=x_api_key,
+        x_timestamp=x_timestamp,
+        x_nonce=x_nonce,
+        x_signature=x_signature,
+        model=DeepScanResultRequest,
+    )
+    if isinstance(parsed, JSONResponse):
+        return parsed
+    payload, http = parsed
+    return await _finish_deep_scan(payload.scan_id, payload.email, client=http)
+
+
+async def _authorized_json(
+    request: Request,
+    *,
+    x_api_key: str | None,
+    x_timestamp: str | None,
+    x_nonce: str | None,
+    x_signature: str | None,
+    model,
+):
+    settings = get_settings()
+    _authorize(x_api_key)
+    if not rate_limiter.allow(caller_key(x_api_key, request), per_minute=settings.rate_limit_per_minute):
+        raise HTTPException(status_code=429, detail="Too many requests", headers={"Retry-After": "10"})
+    raw = await read_limited_body(request, settings.max_request_bytes)
+    if settings.request_signing_secret:
+        verify_signature(
+            secret=settings.request_signing_secret,
+            body=raw,
+            timestamp=x_timestamp,
+            nonce=x_nonce,
+            signature=x_signature,
+            nonces=nonces,
+            max_age=settings.signature_max_age_seconds,
+        )
+    try:
+        parsed = model.model_validate_json(raw)
+    except ValidationError as exc:
+        return JSONResponse(status_code=422, content={"detail": safe_validation_errors(exc.errors())})
+    http = getattr(request.app.state, "http", None)
+    return parsed, http
+
+
+async def _start_deep_scan(email: EmailInput, *, client: httpx.AsyncClient | None) -> AnalysisResponse:
+    result = await analyze_email(email, client=client)
+    urls = extract_bare_urls(email)
+    if not deep_scan_configured() or not urls or client is None:
+        result.deep_scan.available = False
+        result.deep_scan.recommended = False
+        return result
+    if ledger().optional_paused:
+        return _mark_paused(result)
+    try:
+        items = await submit_urls(urls, client=client)
+    except BudgetPaused:
+        return _mark_paused(result)
+    except Exception:
+        result.deep_scan.status = "error"
+        result.deep_scan.available = True
+        return result
+    result.deep_scan.status = "pending"
+    result.deep_scan.scan_id = mint_scan_token(items)
+    result.deep_scan.available = True
+    result.deep_scan.paused = False
+    return result
+
+
+async def _finish_deep_scan(
+    scan_id: str,
+    email: EmailInput,
+    *,
+    client: httpx.AsyncClient | None,
+) -> AnalysisResponse:
+    try:
+        token_items = parse_scan_token(scan_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid or expired scan token") from None
+    urls = extract_bare_urls(email)
+    if client is None:
+        result = await analyze_email(email, client=client)
+        result.deep_scan.status = "pending"
+        result.deep_scan.scan_id = scan_id
+        return result
+    try:
+        status, reports = await poll_analyses(token_items, urls, client=client)
+    except Exception:
+        result = await analyze_email(email, client=client)
+        result.deep_scan.status = "error"
+        result.deep_scan.scan_id = scan_id
+        result.deep_scan.available = True
+        return result
+    if status != "completed":
+        result = await analyze_email(email, client=client)
+        result.deep_scan.status = "pending"
+        result.deep_scan.scan_id = scan_id
+        result.deep_scan.available = True
+        return result
+    matches, notes, evidence = interpret_reports(reports)
+    applied = "confirmed" if any(match.confirmed for match in matches) else "note"
+    result = await analyze_email(
+        email,
+        client=client,
+        extra_url_matches=matches,
+        extra_findings=notes,
+        sandbox_evidence=evidence,
+        reputation_applied=applied,
+    )
+    result.deep_scan.status = "complete"
+    result.deep_scan.scan_id = scan_id
+    result.deep_scan.available = False
+    result.deep_scan.recommended = False
+    return result
+
+
+def _mark_paused(result: AnalysisResponse) -> AnalysisResponse:
+    result.deep_scan.available = False
+    result.deep_scan.recommended = False
+    result.deep_scan.paused = True
+    result.deep_scan.status = "paused"
+    result.deep_scan.scan_id = ""
+    return result
 
 
 @app.get("/")

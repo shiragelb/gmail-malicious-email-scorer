@@ -68,11 +68,48 @@ function buildAnalysisCard(event) {
   }
 
   var payload = messagePayload(message);
+  return fetchAnalysisCard(config, "/v1/analyze", payload, payload.from_address);
+}
+
+function requestDeepScan(event) {
+  var message = currentMessage(event);
+  if (!message) {
+    return noticeCard("Message unavailable", "Open the message again before running the reputation check.");
+  }
+  var config = backendConfig();
+  if (!config.url || !config.key) {
+    return noticeCard("Scorer is not configured", "Set BACKEND_URL and API_KEY before running an on-demand check.");
+  }
+  var payload = messagePayload(message);
+  return fetchAnalysisCard(config, "/v1/deep-scan", payload, payload.from_address);
+}
+
+function refreshDeepScan(event) {
+  var message = currentMessage(event);
+  if (!message) {
+    return noticeCard("Message unavailable", "Open the message again before refreshing the reputation check.");
+  }
+  var scanId = (event.parameters && event.parameters.scanId) || "";
+  if (!scanId) {
+    return noticeCard("Scan expired", "Run the reputation check again from the sidebar.");
+  }
+  var config = backendConfig();
+  if (!config.url || !config.key) {
+    return noticeCard("Scorer is not configured", "Set BACKEND_URL and API_KEY before refreshing the check.");
+  }
+  var payload = {
+    scan_id: scanId,
+    email: messagePayload(message)
+  };
+  return fetchAnalysisCard(config, "/v1/deep-scan/result", payload, payload.email.from_address);
+}
+
+function fetchAnalysisCard(config, path, payload, fromAddress) {
   var body = JSON.stringify(payload);
   var response;
   try {
     var headers = signedHeaders(config, body);
-    response = UrlFetchApp.fetch(config.url.replace(/\/$/, "") + "/v1/analyze", {
+    response = UrlFetchApp.fetch(config.url.replace(/\/$/, "") + path, {
       method: "post",
       contentType: "application/json",
       headers: headers,
@@ -95,7 +132,7 @@ function buildAnalysisCard(event) {
   } catch (error) {
     return noticeCard("Unexpected response", "The scoring service did not return JSON.");
   }
-  return resultCard(result, payload.from_address);
+  return resultCard(result, fromAddress);
 }
 
 function reportPhishing(event) {
@@ -325,6 +362,7 @@ function resultCard(result, fromAddress) {
   var verdict = result.verdict || "Suspicious";
   var score = Number(result.score || 0);
   var color = VERDICT_COLOR[verdict] || "#8a5a00";
+  var deep = result.deep_scan || {};
 
   var summarySection = CardService.newCardSection()
     .addWidget(CardService.newTextParagraph().setText(
@@ -353,7 +391,34 @@ function resultCard(result, fromAddress) {
     adviceSection.addWidget(CardService.newTextParagraph().setText(escapeHtml(item)));
   });
 
-  var buttons = CardService.newButtonSet()
+  if (deep.status === "pending" && deep.scan_id) {
+    adviceSection.addWidget(CardService.newTextParagraph().setText(
+      "The reputation check is still running. Tap Refresh in a minute."
+    ));
+  } else if (deep.paused) {
+    adviceSection.addWidget(CardService.newTextParagraph().setText(
+      "On-demand checks are paused until the daily limit resets. The local score still stands."
+    ));
+  } else if (deep.available) {
+    var copy = deep.reason === "new_domain"
+      ? "This domain was registered recently. An on-demand URL reputation check can add evidence from other scanners."
+      : "Still unsure? Run an on-demand URL reputation check. It asks other scanners about the links. It is not a guarantee.";
+    adviceSection.addWidget(CardService.newTextParagraph().setText(copy));
+  }
+
+  var buttons = CardService.newButtonSet();
+  if (deep.status === "pending" && deep.scan_id) {
+    buttons.addButton(CardService.newTextButton()
+      .setText("Refresh")
+      .setOnClickAction(CardService.newAction()
+        .setFunctionName("refreshDeepScan")
+        .setParameters({ scanId: String(deep.scan_id) })));
+  } else if (deep.available) {
+    buttons.addButton(CardService.newTextButton()
+      .setText("Check link reputation")
+      .setOnClickAction(CardService.newAction().setFunctionName("requestDeepScan")));
+  }
+  buttons
     .addButton(CardService.newTextButton()
       .setText("Report phishing")
       .setOnClickAction(CardService.newAction().setFunctionName("reportPhishing")))

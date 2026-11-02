@@ -7,3 +7,9 @@ python-whois>=0.9,<1
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 #   pip install transformers
 transformers>=4.44,<5
+
+# Optional ONNX phishing classifier. Used only when USE_ONNX_CLASSIFIER=true.
+# Point ONNX_MODEL_DIR at a local folder that already contains model.onnx
+# (and tokenizer.json or a Hugging Face tokenizer). Nothing is downloaded
+# at request time. Do not add this to the Cloud Run image.
+onnxruntime>=1.19,<2

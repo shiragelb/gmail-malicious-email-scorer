@@ -38,7 +38,11 @@ $envVars = @(
     "DEV_MODE=false",
     "ENABLE_WHOIS=false",
     "ENABLE_LIVE_DNS=false",
+    "ENABLE_DOMAIN_AGE=false",
     "USE_TRANSFORMERS=false",
+    "USE_ONNX_CLASSIFIER=false",
+    "ENABLE_DEEP_SCAN=false",
+    "BUDGET_USD_PER_DAY=1",
     "LLM_MODE=redacted",
     "LOG_LEVEL=WARNING",
     "FIREBASE_PROJECT_ID=$fb"
@@ -67,7 +71,8 @@ if (-not $SkipSecrets) {
         @{ Env = "ACCOUNT_TOKEN_SECRET"; Secret = "account-token-secret" },
         @{ Env = "ANTHROPIC_API_KEY"; Secret = "anthropic-api-key" },
         @{ Env = "SAFE_BROWSING_API_KEY"; Secret = "safe-browsing-api-key" },
-        @{ Env = "URLHAUS_AUTH_KEY"; Secret = "urlhaus-auth-key" }
+        @{ Env = "URLHAUS_AUTH_KEY"; Secret = "urlhaus-auth-key" },
+        @{ Env = "VIRUSTOTAL_API_KEY"; Secret = "virustotal-api-key" }
     )
     $pairs = @()
     foreach ($item in $wanted) {

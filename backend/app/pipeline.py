@@ -20,8 +20,10 @@ from app.layers import (
     text_classifier,
     url_intel,
 )
+from app.budget import ledger
+from app.layers.deep_scan import deep_scan_configured, is_shortener_url, strip_url
 from app.sanitize import prepare_content
-from app.schemas import AnalysisResponse, EmailInput, Finding, UrlIntelReport, UrlMatch
+from app.schemas import AnalysisResponse, DeepScanHint, EmailInput, Finding, UrlIntelReport, UrlMatch
 from app.scoring import (
     SignalFlags,
     build_checks,
@@ -43,12 +45,16 @@ async def analyze_email(
     client: httpx.AsyncClient | None = None,
     url_screen=None,
     hash_lookup=None,
+    extra_url_matches: list[UrlMatch] | None = None,
+    extra_findings: list[Finding] | None = None,
+    sandbox_evidence: dict | None = None,
+    reputation_applied: str = "",
 ) -> AnalysisResponse:
     body, urls = prepare_content(email.body_text, email.body_html)
     auth = authentication.assess(email.headers)
     sender = email_domain(email.from_address)
     spoof = spoofing.detect_display_name_spoof(email.from_display, email.from_address)
-    age = await _sender_age(sender)
+    age_task = asyncio.create_task(_sender_age(sender, client=client))
     text = text_classifier.classify(email.subject, body)
 
     findings: list[Finding] = []
@@ -63,16 +69,6 @@ async def analyze_email(
                 points=spoof.points,
             )
         )
-    if age.reason and age.age_days is not None:
-        findings.append(
-            Finding(
-                layer="identity",
-                code="new_domain" if age.is_new_domain else "domain_age",
-                polarity="risk" if age.points else "trust",
-                text=age.reason,
-                points=age.points,
-            )
-        )
 
     reply = lookalike.reply_to_mismatch(email.from_address, email.reply_to)
     if reply is not None:
@@ -80,9 +76,6 @@ async def analyze_email(
 
     for url in urls:
         findings.extend(lookalike.assess_url(url, sender, email.from_display, email.subject))
-
-    if domain_age.whois_available():
-        findings.extend(await _url_domain_ages(urls, sender))
 
     findings.extend(attachments.assess(email.attachment_names))
 
@@ -125,8 +118,24 @@ async def analyze_email(
         )
 
     combined_urls = _merge_urls(urls, file_urls)
-    intel, intel_failed = await _screen(combined_urls, client=client, url_screen=url_screen)
-    for match in intel.matches:
+    intel_task = asyncio.create_task(_screen(combined_urls, client=client, url_screen=url_screen))
+    url_age_task = None
+    age = await age_task
+    if age.reason and age.age_days is not None:
+        findings.append(
+            Finding(
+                layer="identity",
+                code="new_domain" if age.is_new_domain else "domain_age",
+                polarity="risk" if age.points else "trust",
+                text=age.reason,
+                points=age.points,
+            )
+        )
+    if domain_age.lookups_enabled():
+        url_age_task = asyncio.create_task(_url_domain_ages(combined_urls, sender, client=client))
+    intel, intel_failed = await intel_task
+    extra_matches = list(extra_url_matches or [])
+    for match in [*intel.matches, *extra_matches]:
         findings.append(
             Finding(
                 layer="url",
@@ -149,6 +158,10 @@ async def analyze_email(
 
     hashes = [report.sha256 for report in file_result.reports if report.sha256]
     hash_matches, hash_unavailable = await _hash_screen(hashes, client=client, hash_lookup=hash_lookup)
+    if url_age_task is not None:
+        findings.extend(await url_age_task)
+    if extra_findings:
+        findings.extend(extra_findings)
     for match in hash_matches:
         findings.append(
             Finding(
@@ -190,7 +203,9 @@ async def analyze_email(
         new_sender_domain=age.is_new_domain,
         spoofing=spoof.spoofing_detected,
         lookalike=any(item.code == "lookalike" for item in findings),
-        intel_hit=intel.matched or any(match.confirmed for match in hash_matches),
+        intel_hit=intel.matched
+        or any(match.confirmed for match in extra_matches)
+        or any(match.confirmed for match in hash_matches),
         semantic_phish=semantic_phish,
         severe_text=severe_text,
         link_mismatch=any(item.code == "link_mismatch" for item in findings),
@@ -263,7 +278,13 @@ async def analyze_email(
 
     engine = "local"
     if client is not None:
-        decision, engine = await meta_analyst.refine(decision, email, body, client=client)
+        decision, engine = await meta_analyst.refine(
+            decision,
+            email,
+            body,
+            client=client,
+            sandbox_evidence=sandbox_evidence,
+        )
         decision = type(decision)(
             score=decision.score,
             verdict=decision.verdict,
@@ -299,7 +320,7 @@ async def analyze_email(
         )
         attachment_layers.append(payload)
 
-    url_flagged = len(intel.matches) + sum(
+    url_flagged = len(intel.matches) + len(extra_matches) + sum(
         1 for item in findings if item.code in {"lookalike", "link_mismatch"} and item.polarity == "risk"
     )
     checks = build_checks(
@@ -310,6 +331,13 @@ async def analyze_email(
         attachment_names=email.attachment_names,
         wording_severe=flags.severe_text,
         wording_credential=flags.semantic_phish and not flags.severe_text,
+        reputation_applied=reputation_applied,
+    )
+    deep_scan = _deep_scan_hint(
+        combined_urls,
+        findings=decision.findings,
+        intel_hit=flags.intel_hit,
+        new_sender_domain=age.is_new_domain,
     )
 
     return AnalysisResponse(
@@ -344,7 +372,7 @@ async def analyze_email(
             },
             "urls": {
                 "extracted": combined_urls,
-                "matches": [match.model_dump() for match in [*intel.matches, *hash_matches]],
+                "matches": [match.model_dump() for match in [*intel.matches, *extra_matches, *hash_matches]],
                 "unavailable": list(dict.fromkeys([*intel.unavailable, *hash_unavailable])),
                 "lookalikes": [item.text for item in findings if item.code == "lookalike"],
             },
@@ -357,17 +385,48 @@ async def analyze_email(
                 "analyst": decision.analyst,
             },
         },
+        deep_scan=deep_scan,
     )
 
 
-async def _sender_age(sender: str):
+async def _sender_age(sender: str, client: httpx.AsyncClient | None = None):
     created = None
-    if sender and domain_age.whois_available():
-        created = await asyncio.to_thread(domain_age.lookup_creation_date, sender)
+    if sender and domain_age.lookups_enabled():
+        created = await domain_age.lookup_creation_date_async(sender, client=client)
     return domain_age.assess_domain_age(created, domain=sender)
 
 
-async def _url_domain_ages(urls: list[str], sender: str) -> list[Finding]:
+def _deep_scan_hint(
+    urls: list[str],
+    *,
+    findings: list[Finding],
+    intel_hit: bool,
+    new_sender_domain: bool,
+) -> DeepScanHint:
+    http_urls = [url for url in urls if strip_url(url)]
+    paused = ledger().optional_paused
+    available = deep_scan_configured() and bool(http_urls) and not paused
+    young = new_sender_domain or any(item.code == "new_link_domain" for item in findings)
+    unknown_redirect = (not intel_hit) and any(is_shortener_url(url) for url in http_urls)
+    recommended = available and (young or unknown_redirect)
+    reason = ""
+    if recommended and young:
+        reason = "new_domain"
+    elif recommended:
+        reason = "unknown_redirect"
+    return DeepScanHint(
+        available=available,
+        recommended=recommended,
+        reason=reason,
+        paused=paused and deep_scan_configured() and bool(http_urls),
+    )
+
+
+async def _url_domain_ages(
+    urls: list[str],
+    sender: str,
+    client: httpx.AsyncClient | None = None,
+) -> list[Finding]:
     from app.brands import host_of
 
     sender_reg = registrable_domain(sender) if sender else ""
@@ -381,7 +440,7 @@ async def _url_domain_ages(urls: list[str], sender: str) -> list[Finding]:
             break
     findings: list[Finding] = []
     for host in hosts:
-        created = await asyncio.to_thread(domain_age.lookup_creation_date, host)
+        created = await domain_age.lookup_creation_date_async(host, client=client)
         age = domain_age.assess_domain_age(created, domain=host)
         if age.is_new_domain and age.reason:
             findings.append(

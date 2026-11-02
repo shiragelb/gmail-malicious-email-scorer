@@ -102,6 +102,8 @@
         <p id="summary"></p>
         <ul id="reasons"></ul>
         <ul id="mitigations"></ul>
+        <p class="qa" id="deep-scan-copy"></p>
+        <div class="actions" id="deep-scan-actions"></div>
         <p class="qa" id="qa"></p>
       </div>
     </section>
@@ -109,6 +111,8 @@
   <script>
     const scenarios = new Map();
     let activeExpected = null;
+    let lastEmail = null;
+    let pendingScanId = "";
     const form = document.querySelector("#composer");
     const output = document.querySelector("#output");
     const empty = document.querySelector("#empty");
@@ -161,6 +165,32 @@
         item.textContent = step;
         mitigations.appendChild(item);
       }
+      const deep = result.deep_scan || {};
+      const deepCopy = field("deep-scan-copy");
+      const deepActions = field("deep-scan-actions");
+      deepActions.replaceChildren();
+      pendingScanId = deep.scan_id || "";
+      if (deep.status === "pending" && deep.scan_id) {
+        deepCopy.textContent = "The reputation check is still running. Tap Refresh in a minute.";
+        const refresh = document.createElement("button");
+        refresh.type = "button";
+        refresh.textContent = "Refresh";
+        refresh.addEventListener("click", () => refreshDeepScan());
+        deepActions.appendChild(refresh);
+      } else if (deep.paused) {
+        deepCopy.textContent = "On-demand checks are paused until the daily limit resets. The local score still stands.";
+      } else if (deep.available) {
+        deepCopy.textContent = deep.reason === "new_domain"
+          ? "This domain was registered recently. An on-demand URL reputation check can add evidence from other scanners."
+          : "Still unsure? Run an on-demand URL reputation check. It asks other scanners about the links. It is not a guarantee.";
+        const check = document.createElement("button");
+        check.type = "button";
+        check.textContent = "Check link reputation";
+        check.addEventListener("click", () => requestDeepScan());
+        deepActions.appendChild(check);
+      } else {
+        deepCopy.textContent = "";
+      }
       const qa = field("qa");
       if (!activeExpected) {
         qa.textContent = "";
@@ -170,30 +200,56 @@
       qa.textContent = (inRange ? "Matches" : "Outside") + " the QA range for scenario " + activeExpected.id + ": " + activeExpected.expected_verdict + ", " + activeExpected.expected_min + "–" + activeExpected.expected_max + ".";
     }
 
+    async function postJson(path, body) {
+      const headers = { "Content-Type": "application/json" };
+      const key = field("api-key").value.trim();
+      if (key) headers["X-API-Key"] = key;
+      const response = await fetch(path, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body)
+      });
+      const payloadBody = await response.json();
+      if (!response.ok) {
+        throw new Error(payloadBody.detail || "The scorer returned an error.");
+      }
+      return payloadBody;
+    }
+
     async function score(email, expected) {
       activeExpected = expected || null;
+      lastEmail = email || payload();
       formError.textContent = "";
       scoreButton.disabled = true;
       scoreButton.textContent = "Scoring…";
       try {
-        const headers = { "Content-Type": "application/json" };
-        const key = field("api-key").value.trim();
-        if (key) headers["X-API-Key"] = key;
-        const response = await fetch("/v1/analyze", {
-          method: "POST",
-          headers,
-          body: JSON.stringify(email || payload())
-        });
-        const body = await response.json();
-        if (!response.ok) {
-          throw new Error(body.detail || "The scorer returned an error.");
-        }
-        render(body);
+        render(await postJson("/v1/analyze", lastEmail));
       } catch (error) {
         formError.textContent = error.message || "Could not reach the scorer.";
       } finally {
         scoreButton.disabled = false;
         scoreButton.textContent = "Score this email";
+      }
+    }
+
+    async function requestDeepScan() {
+      formError.textContent = "";
+      try {
+        render(await postJson("/v1/deep-scan", lastEmail || payload()));
+      } catch (error) {
+        formError.textContent = error.message || "Could not start the reputation check.";
+      }
+    }
+
+    async function refreshDeepScan() {
+      formError.textContent = "";
+      try {
+        render(await postJson("/v1/deep-scan/result", {
+          scan_id: pendingScanId,
+          email: lastEmail || payload()
+        }));
+      } catch (error) {
+        formError.textContent = error.message || "Could not refresh the reputation check.";
       }
     }
 

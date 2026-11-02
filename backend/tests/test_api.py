@@ -22,6 +22,8 @@ def test_health(client):
     assert body["status"] == "ok"
     assert body["providers"]["urlhaus"] is False
     assert body["providers"]["anthropic"] is False
+    assert body["providers"]["deep_scan"] is False
+    assert "spent_usd" in body["budget"]
 
 
 def test_analyze_classic_phishing_scenario(client):

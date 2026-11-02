@@ -40,15 +40,34 @@ class Settings(BaseSettings):
     urlhaus_auth_key: str = ""
     phishtank_api_key: str = ""
     safe_browsing_api_key: str = ""
+    virustotal_api_key: str = ""
     enable_live_dns: bool = False
     enable_whois: bool = True
+    enable_domain_age: bool = True
     use_transformers: bool = False
     transformer_model: str = "ealvaradob/bert-finetuned-phishing"
+    use_onnx_classifier: bool = False
+    onnx_model_dir: str = ""
+    onnx_inference_timeout_ms: int = 500
     new_domain_days: int = 30
     young_domain_days: int = 90
+    domain_age_timeout_ms: int = 800
+    domain_age_cache_ttl_seconds: int = 3600
 
     inspect_isolation: bool = True
     inspect_timeout_seconds: float = 8.0
+
+    budget_usd_per_day: float = 1.0
+    claude_input_usd_per_million: float = 3.0
+    claude_output_usd_per_million: float = 15.0
+    deep_scan_usd_per_url: float = 0.02
+    onnx_usd_per_call: float = 0.0
+
+    enable_deep_scan: bool = False
+    deep_scan_malicious_threshold: int = 3
+    deep_scan_max_urls: int = 3
+    deep_scan_per_hour: int = 6
+    deep_scan_token_ttl_seconds: int = 1800
 
     @property
     def effective_log_level(self) -> str:

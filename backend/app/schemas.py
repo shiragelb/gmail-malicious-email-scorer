@@ -221,6 +221,22 @@ class CheckItem(BaseModel):
     status: Literal["pass", "warn", "fail", "skip"] = "pass"
 
 
+class DeepScanHint(BaseModel):
+    available: bool = False
+    recommended: bool = False
+    reason: str = ""
+    status: str = ""
+    scan_id: str = ""
+    paused: bool = False
+
+
+class DeepScanResultRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scan_id: str
+    email: EmailInput
+
+
 class AnalysisResponse(BaseModel):
     message_id: str | None = None
     score: int
@@ -233,3 +249,4 @@ class AnalysisResponse(BaseModel):
     suggested_actions: list[str]
     agent_safety: AgentSafety = Field(default_factory=AgentSafety)
     layers: dict
+    deep_scan: DeepScanHint = Field(default_factory=DeepScanHint)

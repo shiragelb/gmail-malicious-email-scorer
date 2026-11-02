@@ -25,14 +25,15 @@ A Gmail add-on that scores the email you have open and explains the verdict.
 ┌─────────────────┐     HTTPS + API key      ┌──────────────────────────┐
 │  Gmail Add-on   │     + HMAC signature     │  FastAPI on Cloud Run    │
 │  (Apps Script)  │ ───────────────────────► │  POST /v1/analyze        │
-│                 │ ◄─────────────────────── │                          │
-│  Sidebar card   │     score, verdict,      │  Layers → fuse → respond │
+│                 │ ◄─────────────────────── │  POST /v1/deep-scan      │
+│  Sidebar card   │     score, verdict,      │                          │
 │  Report / Block │     reasons, checks      └────────────┬─────────────┘
-└─────────────────┘                                       │
-                                                          ▼
-                                    ┌─────────────────────────────────────┐
-                                    │ Optional: URLhaus / Safe Browsing / │
-                                    │ MalwareBazaar / Claude (redacted)   │
+│  Optional URL   │                                       │
+│  reputation tap │                                       ▼
+└─────────────────┘                 ┌─────────────────────────────────────┐
+                                    │ Fast path: local layers + feeds     │
+                                    │ Optional: Claude, ONNX, RDAP        │
+                                    │ User-triggered: VirusTotal URLs     │
                                     └─────────────────────────────────────┘
 ```
 
@@ -47,11 +48,12 @@ A Gmail add-on that scores the email you have open and explains the verdict.
 | Layer | What it looks at |
 | --- | --- |
 | Authentication & identity | SPF / DKIM / DMARC from Gmail’s stored `Authentication-Results` (not a fresh DNS vote on the live domain alone). Display-name spoofing and lookalike hosts (confusable folding). |
-| Link reputation | Extracted URLs vs URLhaus; PhishTank / Google Safe Browsing when configured. Destinations are **not** fetched. |
+| Link reputation | Extracted URLs vs URLhaus; PhishTank / Google Safe Browsing when configured. Destinations are **not** fetched. A user-triggered VirusTotal URL check can add evidence; it is off the Gmail open path. |
 | Attachments | PDF / Office / ZIP inspected in-process (macros, scripts, embedded executables, phishing text). Only SHA-256 hashes go to MalwareBazaar — file bytes stay on the scorer. |
-| Wording | Local lexical classifier for credential theft, urgency, payment pressure. Optional Hugging Face model (off by default in production for cold-start cost). |
-| Domain age | Optional WHOIS for young sender domains. |
-| Meta-analysis | Local correlator always runs. Claude (optional) sees **redacted** evidence and a locked system prompt; output is clamped to the band supported by deterministic checks. Prompt-injection patterns can skip the LLM entirely. |
+| Wording | Local lexical classifier for credential theft, urgency, payment pressure. Optional ONNX or Hugging Face model (both off by default in production for cold-start cost). |
+| Domain age | Optional RDAP (fast) or WHOIS for young sender and link domains. Unknown age is not treated as risk. |
+| Meta-analysis | Local correlator always runs. Claude (optional) sees **redacted** evidence, including a sandbox summary when a deep scan finished, and a locked system prompt; output is clamped to the band supported by deterministic checks. Prompt-injection patterns can skip the LLM entirely. |
+| Budget guardrail | Each Cloud Run instance estimates optional spend (Claude, VirusTotal, ONNX) and pauses those pipelines at **$1.00 per UTC day**. Local lexical, auth, feed, and file checks always run. |
 
 **Verdict bands:** Safe &lt; 40 · Suspicious 40–84 · Malicious ≥ 85.
 
@@ -126,12 +128,19 @@ Open http://127.0.0.1:8000/ for the local demo page (dev mode). Copy `.env.examp
 | `API_KEY` / `REQUEST_SIGNING_SECRET` | Protect `/v1/analyze` (required when `DEV_MODE=false`) |
 | `ANTHROPIC_API_KEY` | Claude meta-analysis |
 | `SAFE_BROWSING_API_KEY` / `URLHAUS_AUTH_KEY` | URL / hash intel |
+| `VIRUSTOTAL_API_KEY` | User-triggered URL reputation (`ENABLE_DEEP_SCAN=true`) |
 | `LLM_MODE` | `redacted` (default) · `evidence_only` · `off` |
 | `USE_TRANSFORMERS` | Optional BERT classifier (default off) |
+| `USE_ONNX_CLASSIFIER` | Optional local ONNX phishing model (default off; needs `ONNX_MODEL_DIR`) |
+| `ENABLE_DOMAIN_AGE` | RDAP domain-age lookups (default on locally, off on Cloud Run) |
+| `ENABLE_DEEP_SCAN` | On-demand VirusTotal URL check (default off) |
+| `BUDGET_USD_PER_DAY` | Estimated optional-spend cap per instance (default `1`) |
 
 Apps Script cannot call `localhost`. For a live Gmail demo, deploy to Cloud Run (below) or use a tunnel and set Script property `BACKEND_URL`.
 
 ### Cloud Run (summary)
+
+The production image stays at **512Mi**, installs only `requirements.txt`, and does **not** ship BERT, PyTorch, or ONNX. `USE_TRANSFORMERS`, `USE_ONNX_CLASSIFIER`, and `ENABLE_DEEP_SCAN` are `false`. Wording on Cloud Run is the lexical classifier; optional models live in `requirements-optional.txt` for local use.
 
 ```powershell
 .\deploy\create-secrets.ps1 -ProjectId YOUR_GCP_PROJECT
@@ -186,7 +195,7 @@ python eval/evaluate.py --csv eval/corpus_v1.csv
 
 | What | Where | What it proves |
 | --- | --- | --- |
-| Unit / API tests | `backend/tests/` | Auth, HMAC, spoofing, URL intel mocks, sanitizing, scenario score bands, attachment inspection (including DDE false-positive fix), prompt-injection detector |
+| Unit / API tests | `backend/tests/` | Auth, HMAC, spoofing, URL intel mocks, sanitizing, scenario score bands, attachment inspection (including DDE false-positive fix), prompt-injection detector, **$1/day budget ledger**, ONNX timeout fallback to lexical scoring, VirusTotal confirmation bar, RDAP young-domain recommendation |
 | Labeled corpus | `python eval/evaluate.py` | Accuracy, recall, **FPR strict** and **FPR alert** on Nazario + Enron |
 | Synthetic attacks | `backend/eval/attack_cases.json` | Poisoned URLs, jailbreak bodies, DDE/macro vs a benign workbook |
 | Live Gmail demo | Add-on + Cloud Run | Real headers and attachments; three QA scenarios in `backend/app/scenarios.py` |
@@ -206,6 +215,8 @@ The sample CSV (`backend/eval/sample_emails.csv`) is a fast smoke set; `corpus_v
 - Return a small, stable contract: `safe_to_follow_instructions`, `do_not_act`, `do_not_summarize_verbatim`, plus the human verdict — so an MCP tool or LangChain step can refuse to execute the email’s asks without parsing the sidebar prose.
 - Document a one-call agent flow: fetch message → score → if `do_not_act`, summarize only the scorer’s reasons, never the attacker’s body.
 
+**Cost and deep scan limits:** The $1 cap is estimated API spend on **this process**, reset at UTC midnight — not live GCP billing. With `--max-instances=5` the service-wide ceiling is about $5. VirusTotal receives the bare URL (no userinfo, query, or fragment); the scorer never fetches the link. A VirusTotal report is evidence. It is not a VM and not a guarantee. Three or more malicious engine verdicts can confirm a URL; fewer stay a note and cannot push Safe mail into Malicious.
+
 **Also later:** Workspace Marketplace listing; tighter per-user quotas; richer attachment sandboxing; a larger held-out phishing corpus; optional SIEM export without storing full bodies.
 
 ---
@@ -215,6 +226,7 @@ The sample CSV (`backend/eval/sample_emails.csv`) is a fast smoke set; `corpus_v
 1. Backend reachable (local demo or Cloud Run `/health`).
 2. Add-on installed as a Gmail test deployment with Script properties set.
 3. Open a known-good mail, a credential-phishing sample, and a malware-link sample — show score, reasons, checklist, and Report / Block.
+4. If `ENABLE_DEEP_SCAN` is on, the sidebar can show **Check link reputation** (young domain or unknown shortener). Leave it off on default Cloud Run.
 
 ---
 

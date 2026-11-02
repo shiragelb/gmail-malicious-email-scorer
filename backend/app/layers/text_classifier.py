@@ -157,7 +157,10 @@ def classify(subject: str, body: str) -> TextAssessment:
     model = "lexical-v1"
     remote = _transformer_probability(text)
     if remote is not None:
-        model = f"lexical-v1+{get_settings().transformer_model}"
+        if get_settings().use_onnx_classifier:
+            model = "lexical-v1+onnx"
+        else:
+            model = f"lexical-v1+{get_settings().transformer_model}"
         if severe and remote >= 0.7:
             probability = round(min(1.0, 0.7 * probability + 0.3 * remote), 4)
         elif remote >= 0.8:
@@ -189,7 +192,19 @@ def classify(subject: str, body: str) -> TextAssessment:
 
 def _transformer_probability(text: str) -> float | None:
     settings = get_settings()
-    if not settings.use_transformers or not text:
+    if not text:
+        return None
+    from app.budget import ledger
+
+    if ledger().optional_paused:
+        return None
+    if settings.use_onnx_classifier:
+        from app.layers.onnx_classifier import onnx_probability
+
+        remote = onnx_probability(text)
+        if remote is not None:
+            return remote
+    if not settings.use_transformers:
         return None
     try:
         from transformers import pipeline

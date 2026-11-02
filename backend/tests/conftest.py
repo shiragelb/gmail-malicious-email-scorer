@@ -25,21 +25,35 @@ def offline_environment(monkeypatch):
     monkeypatch.setenv("URLHAUS_AUTH_KEY", "")
     monkeypatch.setenv("ENABLE_LIVE_DNS", "false")
     monkeypatch.setenv("ENABLE_WHOIS", "false")
+    monkeypatch.setenv("ENABLE_DOMAIN_AGE", "false")
     monkeypatch.setenv("USE_TRANSFORMERS", "false")
+    monkeypatch.setenv("USE_ONNX_CLASSIFIER", "false")
+    monkeypatch.setenv("ONNX_MODEL_DIR", "")
+    monkeypatch.setenv("ENABLE_DEEP_SCAN", "false")
+    monkeypatch.setenv("VIRUSTOTAL_API_KEY", "")
+    monkeypatch.setenv("BUDGET_USD_PER_DAY", "1")
     get_settings.cache_clear()
     from app.auth_keys import clear_key_caches
+    from app.budget import reset_ledger
+    from app.layers.deep_scan import reset_caches
+    from app.layers.domain_age import reset_cache
 
     clear_key_caches()
+    reset_ledger()
+    reset_caches()
+    reset_cache()
 
     async def _screen(urls, **kwargs):
         del kwargs
         return UrlIntelReport(matches=reserved_url_matches(urls), checked=list(urls))
 
     monkeypatch.setattr("app.layers.url_intel.screen_urls", _screen)
-    from app.main import nonces, rate_limiter
+    from app.main import deep_scan_limiter, nonces, rate_limiter
 
     nonces.clear()
     rate_limiter.clear()
+    deep_scan_limiter.clear()
     yield
     clear_key_caches()
+    reset_ledger()
     get_settings.cache_clear()

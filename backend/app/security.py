@@ -118,6 +118,24 @@ class RateLimiter:
                 self._buckets.clear()
             return True
 
+    def allow_per_hour(self, key: str, *, per_hour: int, now: float | None = None) -> bool:
+        if per_hour <= 0:
+            return True
+        current = time.monotonic() if now is None else now
+        capacity = float(per_hour)
+        refill = per_hour / 3600.0
+        bucket_key = "h:" + key
+        with self._lock:
+            tokens, updated = self._buckets.get(bucket_key, (capacity, current))
+            tokens = min(capacity, tokens + (current - updated) * refill)
+            if tokens < 1.0:
+                self._buckets[bucket_key] = (tokens, current)
+                return False
+            self._buckets[bucket_key] = (tokens - 1.0, current)
+            if len(self._buckets) > 10_000:
+                self._buckets.clear()
+            return True
+
     def clear(self) -> None:
         with self._lock:
             self._buckets.clear()

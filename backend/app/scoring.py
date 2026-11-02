@@ -20,6 +20,8 @@ _UI_SKIP_CODES = frozenset(
         # Feed outages never change the score — keep them out of the Gmail sidebar.
         "intel_unavailable",
         "hash_intel_unavailable",
+        "deep_scan_paused",
+        "deep_scan_note",
     }
 )
 
@@ -344,6 +346,8 @@ def _public_text(item: Finding) -> str:
         return ""
     if item.code.startswith("intel_"):
         return "A security list has already flagged a link or file in this message as dangerous."
+    if item.code == "deep_scan_paused":
+        return ""
     if item.code == "spoofing":
         return item.text.replace("Display name claims", "The name on the email says").replace(
             "but the sending domain is", "but it did not come from"
@@ -389,6 +393,7 @@ def build_checks(
     attachment_names: list[str] | None = None,
     wording_severe: bool = False,
     wording_credential: bool = False,
+    reputation_applied: str = "",
 ) -> list[CheckItem]:
     """Plain-language checklist of what the scorer looked at."""
     checks: list[CheckItem] = []
@@ -558,6 +563,25 @@ def build_checks(
                 label="Pictures",
                 detail="No pictures attached.",
                 status="skip",
+            )
+        )
+
+    if reputation_applied == "confirmed":
+        checks.append(
+            CheckItem(
+                id="reputation",
+                label="Link reputation",
+                detail="On-demand scanners flagged a link.",
+                status="fail",
+            )
+        )
+    elif reputation_applied == "note":
+        checks.append(
+            CheckItem(
+                id="reputation",
+                label="Link reputation",
+                detail="On-demand scanners reviewed the links. No confirmed hit.",
+                status="pass",
             )
         )
 
