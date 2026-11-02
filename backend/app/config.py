@@ -4,6 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -15,6 +16,7 @@ class Settings(BaseSettings):
         env_file=(str(_REPO_ROOT / ".env"), str(_BACKEND_ROOT / ".env"), ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     dev_mode: bool = False
@@ -46,9 +48,16 @@ class Settings(BaseSettings):
     enable_domain_age: bool = True
     use_transformers: bool = False
     transformer_model: str = "ealvaradob/bert-finetuned-phishing"
-    use_onnx_classifier: bool = True
+    use_onnx_classifier: bool = False
     onnx_model_dir: str = ""
     onnx_inference_timeout_ms: int = 500
+    use_hf_classifier: bool = True
+    hf_token: str = Field(default="", validation_alias=AliasChoices("HF_TOKEN", "HUGGINGFACE_API_KEY", "hf_token"))
+    hf_inference_url: str = "https://router.huggingface.co/hf-inference/models"
+    hf_phishing_model: str = "aamoshdahal/email-phishing-distilbert-finetuned"
+    hf_injection_model: str = "protectai/deberta-v3-small-prompt-injection-v2"
+    hf_classifier_timeout_ms: int = 1500
+    hf_injection_threshold: float = 0.8
     new_domain_days: int = 30
     young_domain_days: int = 90
     domain_age_timeout_ms: int = 800

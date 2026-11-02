@@ -1,4 +1,4 @@
-"""Treat email text as untrusted data. Redact PII before Claude, detect prompt injection."""
+"""Treat email text as untrusted data. Redact PII before any outbound model, detect prompt injection."""
 
 from __future__ import annotations
 
@@ -45,6 +45,14 @@ class InjectionHit:
     pattern: str = ""
 
 
+@dataclass(frozen=True)
+class MaskedMessage:
+    subject: str
+    body: str
+    from_display: str
+    attachment_text: str
+
+
 def strip_hidden(text: str) -> str:
     if not text:
         return ""
@@ -74,6 +82,33 @@ def redact(text: str, *, limit: int = 4000) -> str:
     value = _PHONE.sub("<phone>", value)
     value = _GREETING_NAME.sub(lambda m: f"{m.group(1)}<name>{m.group(3)}", value)
     return value[:limit]
+
+
+def mask_message(
+    *,
+    subject: str = "",
+    body: str = "",
+    from_display: str = "",
+    attachment_text: str = "",
+) -> MaskedMessage:
+    """Redact every language field that might be sent to an external model."""
+    return MaskedMessage(
+        subject=redact(subject or "", limit=200),
+        body=redact(body or "", limit=4000),
+        from_display=redact(from_display or "", limit=200),
+        attachment_text=redact(attachment_text or "", limit=4000),
+    )
+
+
+def redact_payload(value: object, *, limit: int = 400) -> object:
+    """Recursively mask strings in JSON-like payloads before they leave the process."""
+    if isinstance(value, str):
+        return redact(value, limit=limit)
+    if isinstance(value, dict):
+        return {str(key): redact_payload(item, limit=limit) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redact_payload(item, limit=limit) for item in value]
+    return value
 
 
 def skip_sender(email: EmailInput, skip: frozenset[str]) -> bool:

@@ -1,4 +1,4 @@
-"""Lexical phishing classifier, with an optional Hugging Face model as a weak nudge."""
+"""Lexical phishing classifier, with an optional remote model as a weak nudge."""
 
 from __future__ import annotations
 
@@ -117,7 +117,14 @@ _HUGE_MONEY = re.compile(
 _pipeline_cache: dict[str, object] = {}
 
 
-def classify(subject: str, body: str) -> TextAssessment:
+def classify(
+    subject: str,
+    body: str,
+    *,
+    remote_probability: float | None = None,
+    skip_local_remote: bool = False,
+    remote_source: str = "",
+) -> TextAssessment:
     text = f"{subject or ''}\n{body or ''}".strip()
     indicators: list[str] = []
     seen: set[str] = set()
@@ -155,10 +162,16 @@ def classify(subject: str, body: str) -> TextAssessment:
 
     probability = round(min(1.0, probability), 4)
     model = "lexical-v1"
-    remote = _transformer_probability(text)
+    remote = remote_probability
+    if remote is None and not skip_local_remote:
+        remote = _transformer_probability(text)
     if remote is not None:
-        if get_settings().use_onnx_classifier:
+        if remote_source:
+            model = f"lexical-v1+{remote_source}"
+        elif get_settings().use_onnx_classifier:
             model = "lexical-v1+onnx"
+        elif get_settings().use_hf_classifier:
+            model = "lexical-v1+hf"
         else:
             model = f"lexical-v1+{get_settings().transformer_model}"
         if severe and remote >= 0.7:

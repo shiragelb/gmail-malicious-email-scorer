@@ -31,7 +31,7 @@ A Gmail add-on that scores the email you have open and explains the verdict.
 │  Optional URL   │                                       │
 │  reputation tap │                                       ▼
 └─────────────────┘                 ┌─────────────────────────────────────┐
-                                    │ Fast path: lexical + ONNX wording   │
+                                    │ Fast path: lexical + HF API wording │
                                     │ Optional: Claude, RDAP              │
                                     │ User-triggered: VirusTotal URLs     │
                                     └─────────────────────────────────────┘
@@ -50,10 +50,10 @@ A Gmail add-on that scores the email you have open and explains the verdict.
 | Authentication & identity | SPF / DKIM / DMARC from Gmail’s stored `Authentication-Results` (not a fresh DNS vote on the live domain alone). Display-name spoofing and lookalike hosts (confusable folding). |
 | Link reputation | Extracted URLs vs URLhaus; PhishTank / Google Safe Browsing when configured. Destinations are **not** fetched. A user-triggered VirusTotal URL check can add evidence; it is off the Gmail open path. |
 | Attachments | PDF / Office / ZIP inspected in-process (macros, scripts, embedded executables, phishing text). Only SHA-256 hashes go to MalwareBazaar — file bytes stay on the scorer. |
-| Wording | DistilBERT-class **ONNX** phishing classifier on Cloud Run (CPU, baked into the image). Lexical regex is the fallback and a weak blend so ordinary password-reset mail stays Safe. PyTorch / Hugging Face BERT is **not** shipped. |
+| Wording | Hugging Face Inference API phishing classifier on **redacted** text. Lexical regex always runs locally and is the fallback if the API times out. A separate HF prompt-injection check sits beside the regex jailbreak detector. Model weights are **not** stored in the Cloud Run image. |
 | Domain age | Optional RDAP (fast) or WHOIS for young sender and link domains. Unknown age is not treated as risk. |
 | Meta-analysis | Local correlator always runs. Claude (optional) sees **redacted** evidence, including a sandbox summary when a deep scan finished, and a locked system prompt; output is clamped to the band supported by deterministic checks. Prompt-injection patterns can skip the LLM entirely. |
-| Budget guardrail | Each Cloud Run instance estimates optional spend (Claude, VirusTotal) and pauses those pipelines at **$1.00 per UTC day**. Local lexical, ONNX, auth, feed, and file checks always run. |
+| Budget guardrail | Each Cloud Run instance estimates optional spend (Claude, VirusTotal) and pauses those pipelines at **$1.00 per UTC day**. Local lexical, regex, auth, feed, and file checks always run. |
 
 **Verdict bands:** Safe &lt; 40 · Suspicious 40–84 · Malicious ≥ 85.
 
@@ -130,8 +130,10 @@ Open http://127.0.0.1:8000/ for the local demo page (dev mode). Copy `.env.examp
 | `SAFE_BROWSING_API_KEY` / `URLHAUS_AUTH_KEY` | URL / hash intel |
 | `VIRUSTOTAL_API_KEY` | User-triggered URL reputation (`ENABLE_DEEP_SCAN=true`) |
 | `LLM_MODE` | `redacted` (default) · `evidence_only` · `off` |
-| `USE_TRANSFORMERS` | Heavy Hugging Face BERT path (default **off**; not in the Cloud Run image) |
-| `USE_ONNX_CLASSIFIER` | CPU ONNX phishing classifier (default **on** in production; lexical fallback if the model is missing or slower than ~500ms) |
+| `USE_TRANSFORMERS` | Heavy in-process Hugging Face BERT path (default **off**; not in the Cloud Run image) |
+| `USE_HF_CLASSIFIER` | Hugging Face Inference API for phishing and prompt-injection (default **on**; lexical/regex fallback on timeout) |
+| `HF_TOKEN` | Token for the Hugging Face Inference API |
+| `USE_ONNX_CLASSIFIER` | Optional local ONNX phishing classifier (default **off** in production) |
 | `ENABLE_DOMAIN_AGE` | RDAP domain-age lookups (default on locally, off on Cloud Run) |
 | `ENABLE_DEEP_SCAN` | On-demand VirusTotal URL check (default off) |
 | `BUDGET_USD_PER_DAY` | Estimated optional-spend cap per instance (default `1`) |
@@ -140,7 +142,7 @@ Apps Script cannot call `localhost`. For a live Gmail demo, deploy to Cloud Run 
 
 ### Cloud Run (summary)
 
-The production image is **1Gi**, one CPU. It **does** ship a DistilBERT-class ONNX phishing classifier (exported at image build; no PyTorch in the running container). `USE_ONNX_CLASSIFIER=true`. `USE_TRANSFORMERS` stays `false` — Hugging Face BERT is not installed. If ONNX inference exceeds ~500ms or the files are missing, wording falls back to the lexical classifier. `ENABLE_DEEP_SCAN` stays `false` unless you set a VirusTotal key.
+The production image is **512Mi**, one CPU. It does **not** ship model weights. Wording uses the Hugging Face Inference API (`USE_HF_CLASSIFIER=true`) on **redacted** text, then the lexical regex classifier if that call times out or fails. `USE_TRANSFORMERS` and `USE_ONNX_CLASSIFIER` stay `false` unless you opt in locally. `ENABLE_DEEP_SCAN` stays off unless you set a VirusTotal key.
 
 ```powershell
 .\deploy\create-secrets.ps1 -ProjectId YOUR_GCP_PROJECT
@@ -195,7 +197,7 @@ python eval/evaluate.py --csv eval/corpus_v1.csv
 
 | What | Where | What it proves |
 | --- | --- | --- |
-| Unit / API tests | `backend/tests/` | Auth, HMAC, spoofing, URL intel mocks, sanitizing, scenario score bands, attachment inspection (including DDE false-positive fix), prompt-injection detector, **$1/day budget ledger**, ONNX timeout fallback to lexical scoring, VirusTotal confirmation bar, RDAP young-domain recommendation |
+| Unit / API tests | `backend/tests/` | Auth, HMAC, spoofing, URL intel mocks, sanitizing, scenario score bands, attachment inspection (including DDE false-positive fix), prompt-injection detector, **$1/day budget ledger**, Hugging Face timeout fallback to lexical/regex, VirusTotal confirmation bar, RDAP young-domain recommendation |
 | Labeled corpus | `python eval/evaluate.py` | Accuracy, recall, **FPR strict** and **FPR alert** on Nazario + Enron |
 | Synthetic attacks | `backend/eval/attack_cases.json` | Poisoned URLs, jailbreak bodies, DDE/macro vs a benign workbook |
 | Live Gmail demo | Add-on + Cloud Run | Real headers and attachments; three QA scenarios in `backend/app/scenarios.py` |
@@ -215,7 +217,7 @@ The sample CSV (`backend/eval/sample_emails.csv`) is a fast smoke set; `corpus_v
 - Return a small, stable contract: `safe_to_follow_instructions`, `do_not_act`, `do_not_summarize_verbatim`, plus the human verdict — so an MCP tool or LangChain step can refuse to execute the email’s asks without parsing the sidebar prose.
 - Document a one-call agent flow: fetch message → score → if `do_not_act`, summarize only the scorer’s reasons, never the attacker’s body.
 
-**Cost and deep scan limits:** The $1 cap is estimated **paid API** spend (Claude, VirusTotal) on this process, reset at UTC midnight — not live GCP billing, and not the local ONNX classifier. With `--max-instances=5` the service-wide API ceiling is about $5. VirusTotal receives the bare URL (no userinfo, query, or fragment); the scorer never fetches the link. A VirusTotal report is evidence. It is not a VM and not a guarantee. Three or more malicious engine verdicts can confirm a URL; fewer stay a note and cannot push Safe mail into Malicious.
+**Cost and deep scan limits:** The $1 cap is estimated **paid API** spend (Claude, VirusTotal) on this process, reset at UTC midnight — not live GCP billing, and not the Hugging Face classifier. With `--max-instances=5` the service-wide API ceiling is about $5. VirusTotal receives the bare URL (no userinfo, query, or fragment); the scorer never fetches the link. A VirusTotal report is evidence. It is not a VM and not a guarantee. Three or more malicious engine verdicts can confirm a URL; fewer stay a note and cannot push Safe mail into Malicious.
 
 **Also later:** Workspace Marketplace listing; tighter per-user quotas; richer attachment sandboxing; a larger held-out phishing corpus; optional SIEM export without storing full bodies.
 

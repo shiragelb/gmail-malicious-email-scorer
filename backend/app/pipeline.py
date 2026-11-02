@@ -21,7 +21,11 @@ from app.layers import (
     url_intel,
 )
 from app.budget import ledger
+from app.config import get_settings
 from app.layers.deep_scan import deep_scan_configured, is_shortener_url, strip_url
+from app.layers.hf_classifier import phishing_probability
+from app.layers.injection_classifier import assess_injection, injection_finding
+from app.privacy import mask_message
 from app.sanitize import prepare_content
 from app.schemas import AnalysisResponse, DeepScanHint, EmailInput, Finding, UrlIntelReport, UrlMatch
 from app.scoring import (
@@ -55,7 +59,6 @@ async def analyze_email(
     sender = email_domain(email.from_address)
     spoof = spoofing.detect_display_name_spoof(email.from_display, email.from_address)
     age_task = asyncio.create_task(_sender_age(sender, client=client))
-    text = text_classifier.classify(email.subject, body)
 
     findings: list[Finding] = []
     findings.extend(auth.findings)
@@ -86,9 +89,40 @@ async def analyze_email(
         findings.extend(lookalike.assess_url(url, sender, email.from_display, email.subject))
 
     file_text = file_result.text
+    masked = mask_message(
+        subject=email.subject,
+        body=body,
+        from_display=email.from_display,
+        attachment_text=file_text,
+    )
+    settings = get_settings()
+    hf_on = bool(client is not None and settings.use_hf_classifier)
+    masked_body = f"{masked.subject}\n{masked.body}".strip()
+    masked_file = f"{masked.subject}\n{masked.attachment_text}".strip() if file_text else ""
+    hf_phish = None
+    hf_file = None
+    if hf_on:
+        hf_phish, hf_file = await asyncio.gather(
+            phishing_probability(masked_body, client=client),
+            phishing_probability(masked_file, client=client) if masked_file else _none(),
+        )
+
+    text = text_classifier.classify(
+        email.subject,
+        body,
+        remote_probability=hf_phish,
+        skip_local_remote=hf_on,
+        remote_source="hf" if hf_phish is not None else "",
+    )
     file_text_assessment = None
     if file_text:
-        file_text_assessment = text_classifier.classify(email.subject, file_text)
+        file_text_assessment = text_classifier.classify(
+            email.subject,
+            file_text,
+            remote_probability=hf_file,
+            skip_local_remote=hf_on,
+            remote_source="hf" if hf_file is not None else "",
+        )
         if file_text_assessment.is_phishing or file_text_assessment.points:
             indicator_text = (
                 " ".join(file_text_assessment.indicators)
@@ -211,40 +245,6 @@ async def analyze_email(
         link_mismatch=any(item.code == "link_mismatch" for item in findings),
         file_active=file_result.active,
     )
-    # #region agent log
-    try:
-        import json
-        import time
-        from pathlib import Path
-
-        _log = Path(__file__).resolve().parents[2] / "debug-9947bd.log"
-        with _log.open("a", encoding="utf-8") as _fh:
-            _fh.write(
-                json.dumps(
-                    {
-                        "sessionId": "9947bd",
-                        "runId": "pre-fix",
-                        "hypothesisId": "E",
-                        "location": "pipeline.py:flags",
-                        "message": "auth flags driving sender checklist",
-                        "data": {
-                            "spf": auth.spf,
-                            "dkim": auth.dkim,
-                            "dmarc": auth.dmarc,
-                            "auth_source": auth.source,
-                            "auth_passed": flags.auth_passed,
-                            "auth_failed": flags.auth_failed,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    },
-                    ensure_ascii=True,
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
-
     if (
         flags.semantic_phish
         and not flags.auth_failed
@@ -277,11 +277,30 @@ async def analyze_email(
         )
 
     engine = "local"
-    if client is not None:
+    injection = await assess_injection(
+        email.subject,
+        email.from_display,
+        email.from_address,
+        body,
+        file_text,
+        masked_text=f"{masked_body}\n{masked.attachment_text}".strip(),
+        client=client if hf_on else None,
+    )
+    if injection.matched:
+        decision = type(decision)(
+            score=decision.score,
+            verdict=decision.verdict,
+            band=decision.band,
+            summary=decision.summary,
+            findings=[*decision.findings, injection_finding()],
+            analyst=decision.analyst,
+        )
+        engine = "blocked_injection"
+    elif client is not None:
         decision, engine = await meta_analyst.refine(
             decision,
             email,
-            body,
+            masked.body,
             client=client,
             sandbox_evidence=sandbox_evidence,
         )
@@ -502,6 +521,10 @@ async def _published_dns(sender: str) -> dict:
     if not sender or not get_settings().enable_live_dns:
         return {}
     return await asyncio.to_thread(authentication.lookup_published_records, sender)
+
+
+async def _none() -> None:
+    return None
 
 
 def _merge_urls(*groups: list[str]) -> list[str]:

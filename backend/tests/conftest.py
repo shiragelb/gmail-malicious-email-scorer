@@ -28,6 +28,8 @@ def offline_environment(monkeypatch):
     monkeypatch.setenv("ENABLE_DOMAIN_AGE", "false")
     monkeypatch.setenv("USE_TRANSFORMERS", "false")
     monkeypatch.setenv("USE_ONNX_CLASSIFIER", "false")
+    monkeypatch.setenv("USE_HF_CLASSIFIER", "false")
+    monkeypatch.setenv("HF_TOKEN", "")
     monkeypatch.setenv("ONNX_MODEL_DIR", "")
     monkeypatch.setenv("ENABLE_DEEP_SCAN", "false")
     monkeypatch.setenv("VIRUSTOTAL_API_KEY", "")

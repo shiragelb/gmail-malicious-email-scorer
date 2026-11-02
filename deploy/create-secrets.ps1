@@ -13,7 +13,9 @@ param(
     [string]$FirebaseProjectId = "",
     [string]$AnthropicKey = "",
     [string]$SafeBrowsingKey = "",
-    [string]$UrlhausKey = ""
+    [string]$UrlhausKey = "",
+    [string]$VirusTotalKey = "",
+    [string]$HfToken = ""
 )
 
 # gcloud writes info to stderr; do not treat that as a terminating error.
@@ -90,6 +92,8 @@ Ensure-Secret "account-token-secret" $AccountTokenSecret
 Ensure-Secret "anthropic-api-key" $AnthropicKey
 Ensure-Secret "safe-browsing-api-key" $SafeBrowsingKey
 Ensure-Secret "urlhaus-auth-key" $UrlhausKey
+Ensure-Secret "virustotal-api-key" $VirusTotalKey
+Ensure-Secret "hf-token" $HfToken
 
 if ($FirebaseProjectId) {
     Write-Host "Remember to set Cloud Run env FIREBASE_PROJECT_ID=$FirebaseProjectId"

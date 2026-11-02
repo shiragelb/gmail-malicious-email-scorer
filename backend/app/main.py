@@ -166,6 +166,7 @@ def health() -> dict:
             "live_dns": settings.enable_live_dns,
             "transformers": settings.use_transformers,
             "onnx": settings.use_onnx_classifier,
+            "huggingface": bool(settings.use_hf_classifier and settings.hf_token),
             "deep_scan": deep_scan_configured(),
         },
         "budget": ledger().snapshot(),

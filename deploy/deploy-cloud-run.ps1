@@ -31,7 +31,7 @@ Write-Host "Project=$ProjectId Region=$Region Service=$Service"
 Invoke-GCloud config set project $ProjectId
 
 Write-Host "Building $Image ..."
-Invoke-GCloud builds submit $RepoRoot --tag $Image
+Invoke-GCloud builds submit $RepoRoot --tag $Image --timeout=1800
 
 $fb = if ($FirebaseProjectId) { $FirebaseProjectId } else { $ProjectId }
 $envVars = @(
@@ -40,9 +40,9 @@ $envVars = @(
     "ENABLE_LIVE_DNS=false",
     "ENABLE_DOMAIN_AGE=false",
     "USE_TRANSFORMERS=false",
-    "USE_ONNX_CLASSIFIER=true",
-    "ONNX_MODEL_DIR=/srv/backend/models/phishing-onnx",
-    "ENABLE_DEEP_SCAN=false",
+    "USE_ONNX_CLASSIFIER=false",
+    "USE_HF_CLASSIFIER=true",
+    "ENABLE_DEEP_SCAN=true",
     "BUDGET_USD_PER_DAY=1",
     "LLM_MODE=redacted",
     "LOG_LEVEL=WARNING",
@@ -56,7 +56,7 @@ $deployArgs = @(
     "--platform", "managed",
     "--allow-unauthenticated",
     "--port", "8080",
-    "--memory", "1Gi",
+    "--memory", "512Mi",
     "--cpu", "1",
     "--min-instances", "0",
     "--max-instances", "5",
@@ -73,7 +73,8 @@ if (-not $SkipSecrets) {
         @{ Env = "ANTHROPIC_API_KEY"; Secret = "anthropic-api-key" },
         @{ Env = "SAFE_BROWSING_API_KEY"; Secret = "safe-browsing-api-key" },
         @{ Env = "URLHAUS_AUTH_KEY"; Secret = "urlhaus-auth-key" },
-        @{ Env = "VIRUSTOTAL_API_KEY"; Secret = "virustotal-api-key" }
+        @{ Env = "VIRUSTOTAL_API_KEY"; Secret = "virustotal-api-key" },
+        @{ Env = "HF_TOKEN"; Secret = "hf-token" }
     )
     $pairs = @()
     foreach ($item in $wanted) {

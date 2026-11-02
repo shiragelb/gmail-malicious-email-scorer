@@ -30,19 +30,31 @@ def export(model_id: str, out_dir: Path) -> None:
         max_length=128,
         padding="max_length",
     )
-    torch.onnx.export(
-        model,
-        (dummy["input_ids"], dummy["attention_mask"]),
-        str(out_dir / "model.onnx"),
-        input_names=["input_ids", "attention_mask"],
-        output_names=["logits"],
-        dynamic_axes={
+    export_kwargs = {
+        "input_names": ["input_ids", "attention_mask"],
+        "output_names": ["logits"],
+        "dynamic_axes": {
             "input_ids": {0: "batch", 1: "seq"},
             "attention_mask": {0: "batch", 1: "seq"},
             "logits": {0: "batch"},
         },
-        opset_version=14,
-    )
+        "opset_version": 14,
+    }
+    try:
+        torch.onnx.export(
+            model,
+            (dummy["input_ids"], dummy["attention_mask"]),
+            str(out_dir / "model.onnx"),
+            dynamo=False,
+            **export_kwargs,
+        )
+    except TypeError:
+        torch.onnx.export(
+            model,
+            (dummy["input_ids"], dummy["attention_mask"]),
+            str(out_dir / "model.onnx"),
+            **export_kwargs,
+        )
     tokenizer.save_pretrained(out_dir)
     payload = model.config.to_dict()
     (out_dir / "config.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
