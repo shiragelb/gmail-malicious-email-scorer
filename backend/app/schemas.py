@@ -228,6 +228,8 @@ class DeepScanHint(BaseModel):
     status: str = ""
     scan_id: str = ""
     paused: bool = False
+    elapsed_ms: int = 0
+    sandbox_status: str = ""
 
 
 class DeepScanResultRequest(BaseModel):

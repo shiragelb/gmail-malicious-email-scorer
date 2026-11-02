@@ -53,6 +53,7 @@ async def analyze_email(
     extra_findings: list[Finding] | None = None,
     sandbox_evidence: dict | None = None,
     reputation_applied: str = "",
+    skip_llm: bool = False,
 ) -> AnalysisResponse:
     body, urls = prepare_content(email.body_text, email.body_html)
     auth = authentication.assess(email.headers)
@@ -296,7 +297,7 @@ async def analyze_email(
             analyst=decision.analyst,
         )
         engine = "blocked_injection"
-    elif client is not None:
+    elif client is not None and not skip_llm:
         decision, engine = await meta_analyst.refine(
             decision,
             email,
@@ -351,6 +352,7 @@ async def analyze_email(
         wording_severe=flags.severe_text,
         wording_credential=flags.semantic_phish and not flags.severe_text,
         reputation_applied=reputation_applied,
+        findings=decision.findings,
     )
     deep_scan = _deep_scan_hint(
         combined_urls,

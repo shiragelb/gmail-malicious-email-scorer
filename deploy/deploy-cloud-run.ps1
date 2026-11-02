@@ -43,6 +43,7 @@ $envVars = @(
     "USE_ONNX_CLASSIFIER=false",
     "USE_HF_CLASSIFIER=true",
     "ENABLE_DEEP_SCAN=true",
+    "ENABLE_SANDBOX=true",
     "BUDGET_USD_PER_DAY=1",
     "LLM_MODE=redacted",
     "LOG_LEVEL=WARNING",
@@ -62,6 +63,7 @@ $deployArgs = @(
     "--max-instances", "5",
     "--concurrency", "20",
     "--cpu-throttling",
+    "--timeout", "60",
     "--set-env-vars", $envVars
 )
 

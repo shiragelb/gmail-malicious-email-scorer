@@ -23,6 +23,7 @@ def test_health(client):
     assert body["providers"]["urlhaus"] is False
     assert body["providers"]["anthropic"] is False
     assert body["providers"]["deep_scan"] is False
+    assert body["providers"]["sandbox"] is False
     assert "spent_usd" in body["budget"]
 
 

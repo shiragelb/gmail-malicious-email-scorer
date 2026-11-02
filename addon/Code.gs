@@ -24,14 +24,33 @@ var MAX_BODY_CHARS = 20000;
 
 var VERDICT_COLOR = {
   Safe: "#0d7a3f",
-  Suspicious: "#8a5a00",
+  Suspicious: "#b45309",
   Malicious: "#b42318"
 };
+
+var VERDICT_ICON = {
+  Safe: "https://www.gstatic.com/images/icons/material/system/2x/check_circle_googgreen_48dp.png",
+  Suspicious: "https://www.gstatic.com/images/icons/material/system/2x/error_googyellow_48dp.png",
+  Malicious: "https://www.gstatic.com/images/icons/material/system/2x/cancel_googred_48dp.png"
+};
+
+var STATUS_ICON = {
+  pass: "https://www.gstatic.com/images/icons/material/system/2x/check_circle_googgreen_48dp.png",
+  fail: "https://www.gstatic.com/images/icons/material/system/2x/cancel_googred_48dp.png",
+  warn: "https://www.gstatic.com/images/icons/material/system/2x/error_googyellow_48dp.png",
+  skip: "https://www.gstatic.com/images/icons/material/system/2x/help_outline_black_48dp.png"
+};
+
+var WAIT_ICON = "https://www.gstatic.com/images/icons/material/system/2x/schedule_black_48dp.png";
+
+var MAX_LINK_ROWS = 6;
 
 var MAX_ATTACHMENT_FILES = 5;
 var MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 var MAX_ATTACHMENT_TOTAL_BYTES = 10 * 1024 * 1024;
 var MAX_UNKNOWN_TYPE_BYTES = 2 * 1024 * 1024;
+var DEEP_SCAN_POLLS = 1;
+var DEEP_SCAN_WAIT_MS = 500;
 
 // Only these file types are inspected by the backend, so only their bytes leave Gmail.
 var INSPECTED_EXTENSIONS = [
@@ -72,6 +91,10 @@ function buildAnalysisCard(event) {
 }
 
 function requestDeepScan(event) {
+  return deepScanWaitCard();
+}
+
+function runDeepScan(event) {
   var message = currentMessage(event);
   if (!message) {
     return noticeCard("Message unavailable", "Open the message again before running the reputation check.");
@@ -81,58 +104,122 @@ function requestDeepScan(event) {
     return noticeCard("Scorer is not configured", "Set BACKEND_URL and API_KEY before running an on-demand check.");
   }
   var payload = messagePayload(message);
-  return fetchAnalysisCard(config, "/v1/deep-scan", payload, payload.from_address);
+  var started = postJson(config, "/v1/deep-scan", payload);
+  if (started.card) {
+    return started.card;
+  }
+  return settleDeepScan(config, payload, payload.from_address, started.result);
+}
+
+function deepScanWaitCard() {
+  return CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader()
+      .setTitle("Checking links")
+      .setSubtitle("Usually about 10 seconds")
+      .setImageUrl(WAIT_ICON)
+      .setImageStyle(CardService.ImageStyle.CIRCLE))
+    .addSection(CardService.newCardSection()
+      .addWidget(CardService.newDecoratedText()
+        .setText("Asking other scanners about these links")
+        .setBottomLabel("Keep this sidebar open. Gmail will show a spinner until the result arrives.")
+        .setStartIcon(CardService.newIconImage().setIconUrl(WAIT_ICON))
+        .setWrapText(true))
+      .addWidget(CardService.newButtonSet().addButton(
+        filledButton("Start scan", spinnerAction("runDeepScan"), VERDICT_COLOR.Safe)
+      )))
+    .build();
 }
 
 function refreshDeepScan(event) {
   var message = currentMessage(event);
   if (!message) {
-    return noticeCard("Message unavailable", "Open the message again before refreshing the reputation check.");
+    return noticeCard("Message unavailable", "Open the message again before checking those links.");
   }
   var scanId = (event.parameters && event.parameters.scanId) || "";
   if (!scanId) {
-    return noticeCard("Scan expired", "Run the reputation check again from the sidebar.");
+    return noticeCard("Scan expired", "Tap Check link reputation again from the sidebar.");
   }
   var config = backendConfig();
   if (!config.url || !config.key) {
-    return noticeCard("Scorer is not configured", "Set BACKEND_URL and API_KEY before refreshing the check.");
+    return noticeCard("Scorer is not configured", "Set BACKEND_URL and API_KEY before checking those links.");
   }
-  var payload = {
+  var emailPayload = messagePayload(message);
+  var started = postJson(config, "/v1/deep-scan/result", {
     scan_id: scanId,
-    email: messagePayload(message)
-  };
-  return fetchAnalysisCard(config, "/v1/deep-scan/result", payload, payload.email.from_address);
+    email: emailPayload
+  });
+  if (started.card) {
+    return started.card;
+  }
+  return settleDeepScan(config, emailPayload, emailPayload.from_address, started.result);
+}
+
+function settleDeepScan(config, emailPayload, fromAddress, result) {
+  var n = 0;
+  while (
+    result &&
+    result.deep_scan &&
+    result.deep_scan.status === "pending" &&
+    result.deep_scan.scan_id &&
+    n < DEEP_SCAN_POLLS
+  ) {
+    Utilities.sleep(DEEP_SCAN_WAIT_MS);
+    n += 1;
+    var next = postJson(config, "/v1/deep-scan/result", {
+      scan_id: String(result.deep_scan.scan_id),
+      email: emailPayload
+    });
+    if (next.card) {
+      return next.card;
+    }
+    result = next.result;
+  }
+  return resultCard(result, fromAddress);
 }
 
 function fetchAnalysisCard(config, path, payload, fromAddress) {
+  var posted = postJson(config, path, payload);
+  if (posted.card) {
+    return posted.card;
+  }
+  return resultCard(posted.result, fromAddress);
+}
+
+function postJson(config, path, payload) {
   var body = JSON.stringify(payload);
   var response;
   try {
-    var headers = signedHeaders(config, body);
     response = UrlFetchApp.fetch(config.url.replace(/\/$/, "") + path, {
       method: "post",
       contentType: "application/json",
-      headers: headers,
+      headers: signedHeaders(config, body),
       payload: body,
       muteHttpExceptions: true
     });
   } catch (error) {
-    return noticeCard("Scorer unreachable", String(error));
+    return { card: noticeCard("Scorer unreachable", String(error)) };
   }
 
   var status = response.getResponseCode();
   var bodyText = response.getContentText() || "";
   if (status < 200 || status >= 300) {
-    return noticeCard("Scorer returned " + status, bodyText.slice(0, 500));
+    return { card: noticeCard("Scorer returned " + status, bodyText.slice(0, 500)) };
   }
-
-  var result;
   try {
-    result = JSON.parse(bodyText);
+    return { result: JSON.parse(bodyText) };
   } catch (error) {
-    return noticeCard("Unexpected response", "The scoring service did not return JSON.");
+    return { card: noticeCard("Unexpected response", "The scoring service did not return JSON.") };
   }
-  return resultCard(result, fromAddress);
+}
+
+function spinnerAction(functionName, parameters) {
+  var action = CardService.newAction()
+    .setFunctionName(functionName)
+    .setLoadIndicator(CardService.LoadIndicator.SPINNER);
+  if (parameters) {
+    action.setParameters(parameters);
+  }
+  return action;
 }
 
 function reportPhishing(event) {
@@ -361,120 +448,304 @@ function parseFrom(raw) {
 function resultCard(result, fromAddress) {
   var verdict = result.verdict || "Suspicious";
   var score = Number(result.score || 0);
-  var color = VERDICT_COLOR[verdict] || "#8a5a00";
+  var color = VERDICT_COLOR[verdict] || VERDICT_COLOR.Suspicious;
   var deep = result.deep_scan || {};
+  var links = linkEntries(result);
+
+  var header = CardService.newCardHeader()
+    .setTitle(verdictTitle(verdict))
+    .setSubtitle(score + " out of 100")
+    .setImageUrl(VERDICT_ICON[verdict] || VERDICT_ICON.Suspicious)
+    .setImageStyle(CardService.ImageStyle.CIRCLE);
 
   var summarySection = CardService.newCardSection()
     .addWidget(CardService.newTextParagraph().setText(
-      '<font color="' + color + '"><b>' + score + " / 100 · " + escapeHtml(verdict) + "</b></font>"
+      '<font color="' + color + '"><font size="5"><b>' + score + " / 100 · " +
+      escapeHtml(verdict) + "</b></font></font>"
     ))
     .addWidget(CardService.newTextParagraph().setText(escapeHtml(result.summary || "")));
 
   uniqueTexts(result.reasons || [], 2).forEach(function(reason) {
-    summarySection.addWidget(CardService.newTextParagraph().setText(
-      markForReason(reason) + " " + escapeHtml(reason.text || "")
-    ));
+    summarySection.addWidget(
+      CardService.newDecoratedText()
+        .setText(String(reason.text || ""))
+        .setStartIcon(statusIcon(reason.polarity === "risk" ? "fail" : reason.polarity === "trust" ? "pass" : "skip"))
+        .setWrapText(true)
+    );
   });
 
-  var checksSection = CardService.newCardSection().setHeader("What we checked");
-  var checks = result.checks || [];
-  if (!checks.length) {
-    checksSection.addWidget(CardService.newTextParagraph().setText("No checklist was returned."));
+  var linksSection = CardService.newCardSection().setHeader("Links in this email");
+  if (!links.length) {
+    linksSection.addWidget(
+      CardService.newDecoratedText()
+        .setText("No links")
+        .setBottomLabel("Nothing to scan in this message.")
+        .setStartIcon(statusIcon("skip"))
+        .setWrapText(true)
+    );
   } else {
-    checks.forEach(function(check) {
-      checksSection.addWidget(CardService.newTextParagraph().setText(formatCheckLine(check)));
+    links.forEach(function(item) {
+      linksSection.addWidget(
+        CardService.newDecoratedText()
+          .setText(item.host)
+          .setBottomLabel(item.label)
+          .setStartIcon(statusIcon(item.status))
+          .setWrapText(true)
+          .setOnClickAction(CardService.newAction()
+            .setFunctionName("showLinkDetail")
+            .setParameters({
+              host: item.host,
+              status: item.status,
+              detail: item.detail
+            }))
+      );
+    });
+  }
+  if (deep.status === "pending" && deep.scan_id) {
+    linksSection.addWidget(
+      CardService.newDecoratedText()
+        .setText("Scanners did not finish in time")
+        .setBottomLabel("The local score still stands. You can try again.")
+        .setStartIcon(statusIcon("skip"))
+        .setWrapText(true)
+    );
+  } else if (deep.paused) {
+    linksSection.addWidget(
+      CardService.newDecoratedText()
+        .setText("Reputation checks paused")
+        .setBottomLabel("Daily limit reached. The local score still stands.")
+        .setStartIcon(statusIcon("skip"))
+        .setWrapText(true)
+    );
+  } else if (deep.available && links.length) {
+    linksSection.addWidget(
+      CardService.newDecoratedText()
+        .setText(deep.reason === "new_domain" ? "New domain — extra scan available" : "Want a second opinion?")
+        .setBottomLabel("Ask other scanners about these links. They do not open the pages.")
+        .setStartIcon(statusIcon("skip"))
+        .setWrapText(true)
+    );
+  }
+
+  if (deep.status === "pending" && deep.scan_id) {
+    linksSection.addWidget(CardService.newButtonSet().addButton(
+      filledButton("Keep looking", spinnerAction("refreshDeepScan", { scanId: String(deep.scan_id) }), color)
+    ));
+  } else if (deep.available) {
+    linksSection.addWidget(CardService.newButtonSet().addButton(
+      filledButton("Check these links", spinnerAction("requestDeepScan"), color)
+    ));
+  }
+
+  var checksSection = CardService.newCardSection().setHeader("What we checked");
+  var shown = 0;
+  (result.checks || []).forEach(function(check) {
+    if (!shouldShowCheck(check, links.length > 0)) {
+      return;
+    }
+    shown += 1;
+    checksSection.addWidget(
+      CardService.newDecoratedText()
+        .setTopLabel(String((check && check.label) || "Check"))
+        .setText(checkHeadline(check))
+        .setBottomLabel(String((check && check.detail) || ""))
+        .setStartIcon(statusIcon((check && check.status) || "pass"))
+        .setWrapText(true)
+    );
+  });
+  if (!shown) {
+    checksSection.addWidget(CardService.newTextParagraph().setText("No checklist was returned."));
+  }
+
+  var adviceSection = CardService.newCardSection().setHeader(verdict === "Safe" ? "Keep in mind" : "What to do");
+  if (verdict === "Safe") {
+    adviceSection.addWidget(
+      CardService.newDecoratedText()
+        .setText("This is a guide, not a promise.")
+        .setBottomLabel("Still pause if a message asks you to change payment details or open an unexpected file.")
+        .setStartIcon(statusIcon("skip"))
+        .setWrapText(true)
+    );
+  } else {
+    uniqueStrings(result.mitigations || [], 2).forEach(function(item) {
+      adviceSection.addWidget(
+        CardService.newDecoratedText()
+          .setText(item)
+          .setStartIcon(statusIcon(verdict === "Malicious" ? "fail" : "warn"))
+          .setWrapText(true)
+      );
     });
   }
 
-  var adviceSection = CardService.newCardSection();
-  uniqueStrings(result.mitigations || [], 2).forEach(function(item) {
-    adviceSection.addWidget(CardService.newTextParagraph().setText(escapeHtml(item)));
-  });
-
-  if (deep.status === "pending" && deep.scan_id) {
-    adviceSection.addWidget(CardService.newTextParagraph().setText(
-      "The reputation check is still running. Tap Refresh in a minute."
-    ));
-  } else if (deep.paused) {
-    adviceSection.addWidget(CardService.newTextParagraph().setText(
-      "On-demand checks are paused until the daily limit resets. The local score still stands."
-    ));
-  } else if (deep.available) {
-    var copy = deep.reason === "new_domain"
-      ? "This domain was registered recently. An on-demand URL reputation check can add evidence from other scanners."
-      : "Still unsure? Run an on-demand URL reputation check. It asks other scanners about the links. It is not a guarantee.";
-    adviceSection.addWidget(CardService.newTextParagraph().setText(copy));
+  var secondary = CardService.newButtonSet();
+  var reportBtn = CardService.newTextButton()
+    .setText("Report phishing")
+    .setOnClickAction(CardService.newAction().setFunctionName("reportPhishing"));
+  var blockBtn = CardService.newTextButton()
+    .setText("Block sender")
+    .setOnClickAction(CardService.newAction()
+      .setFunctionName("blockSender")
+      .setParameters({ fromAddress: fromAddress || "" }));
+  if (verdict === "Malicious" || verdict === "Suspicious") {
+    reportBtn.setTextButtonStyle(CardService.TextButtonStyle.FILLED).setBackgroundColor(VERDICT_COLOR.Malicious);
   }
-
-  var buttons = CardService.newButtonSet();
-  if (deep.status === "pending" && deep.scan_id) {
-    buttons.addButton(CardService.newTextButton()
-      .setText("Refresh")
-      .setOnClickAction(CardService.newAction()
-        .setFunctionName("refreshDeepScan")
-        .setParameters({ scanId: String(deep.scan_id) })));
-  } else if (deep.available) {
-    buttons.addButton(CardService.newTextButton()
-      .setText("Check link reputation")
-      .setOnClickAction(CardService.newAction().setFunctionName("requestDeepScan")));
-  }
-  buttons
-    .addButton(CardService.newTextButton()
-      .setText("Report phishing")
-      .setOnClickAction(CardService.newAction().setFunctionName("reportPhishing")))
-    .addButton(CardService.newTextButton()
-      .setText("Block sender")
-      .setOnClickAction(CardService.newAction()
-        .setFunctionName("blockSender")
-        .setParameters({ fromAddress: fromAddress || "" })));
-  adviceSection.addWidget(buttons);
+  secondary.addButton(reportBtn).addButton(blockBtn);
+  adviceSection.addWidget(secondary);
 
   return CardService.newCardBuilder()
-    .setHeader(CardService.newCardHeader().setTitle("Malicious Email Scorer").setSubtitle(verdict))
+    .setHeader(header)
     .addSection(summarySection)
+    .addSection(linksSection)
     .addSection(checksSection)
     .addSection(adviceSection)
     .build();
 }
 
-function formatCheckLine(check) {
-  var status = String((check && check.status) || "pass");
-  var mark = checkMark(status);
-  var label = escapeHtml((check && check.label) || "Check");
-  var detail = escapeHtml((check && check.detail) || "");
-  return mark + " <b>" + label + "</b> — " + detail;
+function showLinkDetail(event) {
+  var params = (event && event.parameters) || {};
+  var host = String(params.host || "This link");
+  var status = String(params.status || "pass");
+  var detail = String(params.detail || "Nothing extra was recorded for this address.");
+  var card = CardService.newCardBuilder()
+    .setHeader(CardService.newCardHeader()
+      .setTitle(host)
+      .setSubtitle(linkStatusTitle(status))
+      .setImageUrl(VERDICT_ICON[status === "fail" ? "Malicious" : status === "warn" ? "Suspicious" : "Safe"])
+      .setImageStyle(CardService.ImageStyle.CIRCLE))
+    .addSection(CardService.newCardSection()
+      .addWidget(CardService.newDecoratedText()
+        .setTopLabel(linkStatusTitle(status))
+        .setText(host)
+        .setBottomLabel(detail)
+        .setStartIcon(statusIcon(status))
+        .setWrapText(true))
+      .addWidget(CardService.newTextParagraph().setText(
+        "The scorer never opens this address, so a bad page cannot load on your computer."
+      )))
+    .build();
+  return CardService.newActionResponseBuilder()
+    .setNavigation(CardService.newNavigation().pushCard(card))
+    .build();
 }
 
-function checkMark(status) {
+function filledButton(label, action, color) {
+  return CardService.newTextButton()
+    .setText(label)
+    .setTextButtonStyle(CardService.TextButtonStyle.FILLED)
+    .setBackgroundColor(color || "#1c2430")
+    .setOnClickAction(action);
+}
+
+function verdictTitle(verdict) {
+  if (verdict === "Safe") {
+    return "Looks safe";
+  }
+  if (verdict === "Malicious") {
+    return "Looks malicious";
+  }
+  return "Looks suspicious";
+}
+
+function linkEntries(result) {
+  var urls = ((((result || {}).layers || {}).urls || {}).extracted) || [];
+  var matches = ((((result || {}).layers || {}).urls || {}).matches) || [];
+  var seen = {};
+  var rows = [];
+  urls.forEach(function(raw) {
+    var host = hostOf(raw);
+    if (!host || seen[host] || rows.length >= MAX_LINK_ROWS) {
+      return;
+    }
+    seen[host] = true;
+    var hit = null;
+    for (var i = 0; i < matches.length; i++) {
+      var matchUrl = String((matches[i] && matches[i].url) || "");
+      if (hostOf(matchUrl) === host || String(matchUrl).toLowerCase().indexOf(host) >= 0) {
+        hit = matches[i];
+        break;
+      }
+    }
+    var status = "pass";
+    var detail = "Nothing flagged this address.";
+    var label = "Clear — nothing flagged";
+    if (hit) {
+      status = hit.confirmed === false ? "warn" : "fail";
+      detail = String(hit.detail || hit.threat || "Flagged by a threat list.").slice(0, 180);
+      label = hit.confirmed === false ? "Worth a closer look" : "Flagged — do not tap";
+    }
+    rows.push({ host: host, status: status, detail: detail, label: label });
+  });
+  return rows;
+}
+
+function hostOf(url) {
+  var match = String(url || "").match(/^https?:\/\/([^\/?#]+)/i);
+  if (!match) {
+    return "";
+  }
+  return match[1].toLowerCase().replace(/^www\./, "").slice(0, 48);
+}
+
+function shouldShowCheck(check, hasLinkRows) {
+  var id = String((check && check.id) || "");
+  var status = String((check && check.status) || "");
+  if (id === "pictures" && status === "skip") {
+    return false;
+  }
+  if (id === "files" && status === "skip") {
+    return false;
+  }
+  if (id === "links" && hasLinkRows) {
+    return false;
+  }
+  return true;
+}
+
+function checkHeadline(check) {
+  var status = String((check && check.status) || "pass");
   if (status === "fail") {
-    return '<font color="#b42318"><b>✕</b></font>';
+    return "Flagged";
   }
   if (status === "warn") {
-    return '<font color="#8a5a00"><b>!</b></font>';
+    return "Needs a closer look";
   }
   if (status === "skip") {
-    return '<font color="#5c6b7a">–</font>';
+    return "Not checked";
   }
-  return '<font color="#0d7a3f"><b>✓</b></font>';
+  return "Passed";
 }
 
-function markForReason(reason) {
-  var polarity = String((reason && reason.polarity) || "note");
-  if (polarity === "risk") {
-    return checkMark("fail");
+function linkStatusTitle(status) {
+  if (status === "fail") {
+    return "Flagged";
   }
-  if (polarity === "trust") {
-    return checkMark("pass");
+  if (status === "warn") {
+    return "Needs a closer look";
   }
-  return checkMark("skip");
+  return "Passed";
+}
+
+function statusIcon(status) {
+  var key = "pass";
+  if (status === "fail" || status === "warn" || status === "skip") {
+    key = status;
+  }
+  return CardService.newIconImage().setIconUrl(STATUS_ICON[key] || STATUS_ICON.pass);
 }
 
 function noticeCard(title, message) {
   return CardService.newCardBuilder()
-    .setHeader(CardService.newCardHeader().setTitle("Malicious Email Scorer"))
+    .setHeader(CardService.newCardHeader()
+      .setTitle(title || "Malicious Email Scorer")
+      .setSubtitle("Malicious Email Scorer")
+      .setImageUrl(VERDICT_ICON.Suspicious)
+      .setImageStyle(CardService.ImageStyle.CIRCLE))
     .addSection(CardService.newCardSection()
-      .addWidget(CardService.newTextParagraph().setText("<b>" + escapeHtml(title) + "</b>"))
-      .addWidget(CardService.newTextParagraph().setText(escapeHtml(message || ""))))
+      .addWidget(CardService.newDecoratedText()
+        .setText(title || "Notice")
+        .setBottomLabel(message || "")
+        .setStartIcon(statusIcon("warn"))
+        .setWrapText(true)))
     .build();
 }
 

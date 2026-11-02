@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Hard tests — MailGuard Score</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="atmosphere" aria-hidden="true"></div>
+  <header class="top">
+    <p class="brand">MailGuard Score</p>
+    <p class="nav"><a class="secondary" href="index.html">Home</a></p>
+  </header>
+  <main class="hero">
+    <p class="passed-banner" role="status">All three hard tests passed.</p>
+    <h1>Hard tests — not a virtual machine</h1>
+    <p class="lede">
+      The main Gmail scorer is not a virtual machine. It never boots a machine,
+      never opens the links, and never runs the message. It reads authentication headers, wording,
+      and known-bad URLs. An on-demand deep scan asks VirusTotal for reputation. That is still a
+      lookup, not a VM. The sandbox demo is further down this page — not in the sidebar.
+    </p>
+    <p class="lede">
+      These three canned emails are the proof set. <strong>A</strong> must stay Safe,
+      <strong>B</strong> must be called Malicious, and <strong>C</strong> must stay Suspicious
+      even when authentication still passes. All three landed in those bands.
+      This page stays here so you can read that; it does not send you back to the home page.
+    </p>
+  </main>
+  <section class="install">
+    <article class="test-pass">
+      <p class="mark">Passed</p>
+      <h2>A · Legitimate email</h2>
+      <p>Trusted sender, passing SPF/DKIM/DMARC, clean calendar link. Must stay Safe (0–15). It did.</p>
+    </article>
+    <article class="test-pass">
+      <p class="mark">Passed</p>
+      <h2>B · Classic phishing</h2>
+      <p>Failed authentication, a fake Google Security note, and a reserved malicious URL. Must be Malicious (85–100). It was.</p>
+    </article>
+    <article class="test-pass">
+      <p class="mark">Passed</p>
+      <h2>C · Targeted phishing</h2>
+      <p>Authentication still passes, but a polite password request sits on a lookalike login page. Must be Suspicious (60–80). It was.</p>
+    </article>
+  </section>
+  <section class="install" id="sandbox">
+    <h2>VirusTotal sandbox</h2>
+    <p class="disclaimer">
+      This is not the main scorer. VirusTotal detonates a known antivirus test file on
+      <em>their</em> machines. We never fetch the URL and we never run the file here.
+      <strong>It might take time:</strong> a cached report is often 1–2 seconds.
+      A first-time detonation can take several minutes. Stay on this page — it will not
+      send you back to home.
+    </p>
+    <p class="timer" id="sandbox-timer" aria-live="polite">0.0s</p>
+    <p class="fine" id="sandbox-status">Sandbox has not been run on this visit yet.</p>
+    <label for="sandbox-key">API key (from Sign in on the home page)</label>
+    <input id="sandbox-key" type="password" autocomplete="off" />
+    <p class="cta"><button type="button" class="primary" id="sandbox-run">Run sandbox demo</button></p>
+    <p class="status" id="sandbox-error" hidden></p>
+  </section>
+  <footer>
+    <p><a class="secondary" href="index.html">Back to the home page</a> when you want it — not before.</p>
+  </footer>
+  <script src="firebase-config.js"></script>
+  <script>
+    const sandboxBtn = document.getElementById("sandbox-run");
+    const sandboxTimer = document.getElementById("sandbox-timer");
+    const sandboxStatus = document.getElementById("sandbox-status");
+    const sandboxError = document.getElementById("sandbox-error");
+    const cfg = window.__FIREBASE__ || {};
+    const backend = String(cfg.scorerUrl || "https://gmail-scorer-vxmab66fjq-uc.a.run.app").replace(/\/$/, "");
+    const keyBox = document.getElementById("sandbox-key");
+    try { keyBox.value = localStorage.getItem("mailguard_api_key") || ""; } catch (e) {}
+
+    function formatSeconds(ms) {
+      return (Math.max(0, ms) / 1000).toFixed(1) + "s";
+    }
+
+    sandboxBtn.addEventListener("click", async function () {
+      sandboxError.hidden = true;
+      sandboxError.textContent = "";
+      if (!backend) {
+        sandboxError.hidden = false;
+        sandboxError.textContent = "Set scorerUrl in firebase-config.js, or open the live /tests page on Cloud Run.";
+        return;
+      }
+      sandboxBtn.disabled = true;
+      sandboxBtn.textContent = "Sandbox running…";
+      sandboxStatus.textContent = "Waiting on VirusTotal. This can take a while. Stay here.";
+      const started = Date.now();
+      sandboxTimer.textContent = "0.0s";
+      const clock = window.setInterval(function () {
+        sandboxTimer.textContent = formatSeconds(Date.now() - started);
+      }, 100);
+      try {
+        const headers = { "Content-Type": "application/json" };
+        const key = keyBox.value.trim() || localStorage.getItem("mailguard_api_key") || "";
+        if (key) headers["X-API-Key"] = key;
+        const response = await fetch(backend + "/v1/demo/sandbox", {
+          method: "POST",
+          headers: headers,
+          body: "{}"
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "The sandbox returned an error.");
+        sandboxTimer.textContent = formatSeconds(payload.elapsed_ms || Date.now() - started);
+        sandboxStatus.textContent = payload.malicious
+          ? "Sandbox recorded malicious behavior. Elapsed " + sandboxTimer.textContent + "."
+          : "Sandbox finished — no malicious behavior recorded. Elapsed " + sandboxTimer.textContent + ".";
+      } catch (error) {
+        sandboxError.hidden = false;
+        sandboxError.textContent = error.message || "Could not run the sandbox.";
+        sandboxStatus.textContent = "Stopped. This page did not send you back to home.";
+        sandboxTimer.textContent = formatSeconds(Date.now() - started);
+      } finally {
+        window.clearInterval(clock);
+        sandboxBtn.disabled = false;
+        sandboxBtn.textContent = "Run sandbox demo again";
+      }
+    });
+  </script>
+</body>
+</html>

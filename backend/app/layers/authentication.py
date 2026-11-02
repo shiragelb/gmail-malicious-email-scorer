@@ -2,36 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import re
-import time
-from pathlib import Path
 
 from app.config import get_settings
 from app.schemas import AuthAssessment, Finding
-
-# #region agent log
-_DEBUG_LOG = Path(__file__).resolve().parents[3] / "debug-9947bd.log"
-
-
-def _dbg(hypothesis_id: str, location: str, message: str, data: dict) -> None:
-    try:
-        payload = {
-            "sessionId": "9947bd",
-            "runId": "pre-fix",
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data,
-            "timestamp": int(time.time() * 1000),
-        }
-        with _DEBUG_LOG.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=True) + "\n")
-    except Exception:
-        pass
-
-
-# #endregion
 
 _RESULT_RE = {
     "spf": re.compile(r"\bspf=(pass|fail|softfail|neutral|none|temperror|permerror)\b", re.IGNORECASE),
@@ -80,40 +54,6 @@ def assess(headers: dict[str, str] | None) -> AuthAssessment:
         spf = received or "unknown"
     if spf == "bestguesspass":
         spf = "pass"
-
-    # #region agent log
-    auth_raw = _header(headers, "Authentication-Results")
-    arc_raw = _header(headers, "ARC-Authentication-Results")
-    received_raw = _header(headers, "Received-SPF")
-    _dbg(
-        "A",
-        "authentication.py:assess",
-        "auth header presence",
-        {
-            "header_keys": sorted(str(k) for k in headers.keys()),
-            "header_count": len(headers),
-            "has_auth_results": bool(auth_raw),
-            "has_arc": bool(arc_raw),
-            "has_received_spf": bool(received_raw),
-            "auth_results_len": len(auth_raw),
-            "arc_len": len(arc_raw),
-            "received_spf_len": len(received_raw),
-            "auth_snippet": (auth_raw or arc_raw or received_raw)[:180],
-        },
-    )
-    _dbg(
-        "C",
-        "authentication.py:assess",
-        "parsed auth results",
-        {
-            "source": source,
-            "spf": spf,
-            "dkim": dkim,
-            "dmarc": dmarc,
-            "all_pass": spf == "pass" and dkim == "pass" and dmarc == "pass",
-        },
-    )
-    # #endregion
 
     findings: list[Finding] = []
     if spf == "pass" and dkim == "pass" and dmarc == "pass":

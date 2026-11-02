@@ -34,6 +34,7 @@ A Gmail add-on that scores the email you have open and explains the verdict.
                                     │ Fast path: lexical + HF API wording │
                                     │ Optional: Claude, RDAP              │
                                     │ User-triggered: VirusTotal URLs     │
+                                    │ Tests page only: VT sandbox timer   │
                                     └─────────────────────────────────────┘
 ```
 
@@ -49,6 +50,7 @@ A Gmail add-on that scores the email you have open and explains the verdict.
 | --- | --- |
 | Authentication & identity | SPF / DKIM / DMARC from Gmail’s stored `Authentication-Results` (not a fresh DNS vote on the live domain alone). Display-name spoofing and lookalike hosts (confusable folding). |
 | Link reputation | Extracted URLs vs URLhaus; PhishTank / Google Safe Browsing when configured. Destinations are **not** fetched. A user-triggered VirusTotal URL check can add evidence; it is off the Gmail open path. |
+| VirusTotal sandbox | **Not in the Gmail sidebar.** The hard-tests page (`GET /tests`, and `landing/testing.html`) can look up a VirusTotal **behaviour summary** for a known test file (EICAR). VirusTotal detonates files on their machines; we never fetch the URL and never run the file. A live timer and a disclaimer warn that a cached report is often 1–2 seconds and a first-time detonation can take several minutes. |
 | Attachments | PDF / Office / ZIP inspected in-process (macros, scripts, embedded executables, phishing text). Only SHA-256 hashes go to MalwareBazaar — file bytes stay on the scorer. |
 | Wording | Hugging Face Inference API phishing classifier on **redacted** text. Lexical regex always runs locally and is the fallback if the API times out. A separate HF prompt-injection check sits beside the regex jailbreak detector. Model weights are **not** stored in the Cloud Run image. |
 | Domain age | Optional RDAP (fast) or WHOIS for young sender and link domains. Unknown age is not treated as risk. |
@@ -128,7 +130,7 @@ Open http://127.0.0.1:8000/ for the local demo page (dev mode). Copy `.env.examp
 | `API_KEY` / `REQUEST_SIGNING_SECRET` | Protect `/v1/analyze` (required when `DEV_MODE=false`) |
 | `ANTHROPIC_API_KEY` | Claude meta-analysis |
 | `SAFE_BROWSING_API_KEY` / `URLHAUS_AUTH_KEY` | URL / hash intel |
-| `VIRUSTOTAL_API_KEY` | User-triggered URL reputation (`ENABLE_DEEP_SCAN=true`) |
+| `VIRUSTOTAL_API_KEY` | User-triggered URL reputation (`ENABLE_DEEP_SCAN=true`) and the tests-page sandbox demo (`ENABLE_SANDBOX=true`) |
 | `LLM_MODE` | `redacted` (default) · `evidence_only` · `off` |
 | `USE_TRANSFORMERS` | Heavy in-process Hugging Face BERT path (default **off**; not in the Cloud Run image) |
 | `USE_HF_CLASSIFIER` | Hugging Face Inference API for phishing and prompt-injection (default **on**; lexical/regex fallback on timeout) |
@@ -136,13 +138,14 @@ Open http://127.0.0.1:8000/ for the local demo page (dev mode). Copy `.env.examp
 | `USE_ONNX_CLASSIFIER` | Optional local ONNX phishing classifier (default **off** in production) |
 | `ENABLE_DOMAIN_AGE` | RDAP domain-age lookups (default on locally, off on Cloud Run) |
 | `ENABLE_DEEP_SCAN` | On-demand VirusTotal URL check (default off) |
+| `ENABLE_SANDBOX` | Tests-page VirusTotal sandbox lookup (default on when a VirusTotal key is set) |
 | `BUDGET_USD_PER_DAY` | Estimated optional-spend cap per instance (default `1`) |
 
 Apps Script cannot call `localhost`. For a live Gmail demo, deploy to Cloud Run (below) or use a tunnel and set Script property `BACKEND_URL`.
 
 ### Cloud Run (summary)
 
-The production image is **512Mi**, one CPU. It does **not** ship model weights. Wording uses the Hugging Face Inference API (`USE_HF_CLASSIFIER=true`) on **redacted** text, then the lexical regex classifier if that call times out or fails. `USE_TRANSFORMERS` and `USE_ONNX_CLASSIFIER` stay `false` unless you opt in locally. `ENABLE_DEEP_SCAN` stays off unless you set a VirusTotal key.
+The production image is **512Mi**, one CPU. It does **not** ship model weights. Wording uses the Hugging Face Inference API (`USE_HF_CLASSIFIER=true`) on **redacted** text, then the lexical regex classifier if that call times out or fails. `USE_TRANSFORMERS` and `USE_ONNX_CLASSIFIER` stay `false` unless you opt in locally. `ENABLE_DEEP_SCAN` is on in the Cloud Run script when a VirusTotal key is mounted. The Gmail open path still does not call VirusTotal; only **Check these links** and the `/tests` sandbox demo do.
 
 ```powershell
 .\deploy\create-secrets.ps1 -ProjectId YOUR_GCP_PROJECT
@@ -201,6 +204,7 @@ python eval/evaluate.py --csv eval/corpus_v1.csv
 | Labeled corpus | `python eval/evaluate.py` | Accuracy, recall, **FPR strict** and **FPR alert** on Nazario + Enron |
 | Synthetic attacks | `backend/eval/attack_cases.json` | Poisoned URLs, jailbreak bodies, DDE/macro vs a benign workbook |
 | Live Gmail demo | Add-on + Cloud Run | Real headers and attachments; three QA scenarios in `backend/app/scenarios.py` |
+| Hard tests + sandbox page | `GET /tests` (also `landing/testing.html`) | Explains the three locked-band cases, marks that they passed, stays on the page. Optional **Run sandbox demo** shows a live timer and a disclaimer that VirusTotal may take seconds or minutes. |
 | Manual checklist | [`testing.md`](testing.md) | Latency target, how to score a false negative vs false positive in a demo |
 
 The sample CSV (`backend/eval/sample_emails.csv`) is a fast smoke set; `corpus_v1.csv` is the number reported in the table above. Rebuild it with `python eval/build_corpus.py` if the source slices change.
@@ -217,9 +221,9 @@ The sample CSV (`backend/eval/sample_emails.csv`) is a fast smoke set; `corpus_v
 - Return a small, stable contract: `safe_to_follow_instructions`, `do_not_act`, `do_not_summarize_verbatim`, plus the human verdict — so an MCP tool or LangChain step can refuse to execute the email’s asks without parsing the sidebar prose.
 - Document a one-call agent flow: fetch message → score → if `do_not_act`, summarize only the scorer’s reasons, never the attacker’s body.
 
-**Cost and deep scan limits:** The $1 cap is estimated **paid API** spend (Claude, VirusTotal) on this process, reset at UTC midnight — not live GCP billing, and not the Hugging Face classifier. With `--max-instances=5` the service-wide API ceiling is about $5. VirusTotal receives the bare URL (no userinfo, query, or fragment); the scorer never fetches the link. A VirusTotal report is evidence. It is not a VM and not a guarantee. Three or more malicious engine verdicts can confirm a URL; fewer stay a note and cannot push Safe mail into Malicious.
+**Cost and deep scan limits:** The $1 cap is estimated **paid API** spend (Claude, VirusTotal) on this process, reset at UTC midnight — not live GCP billing, and not the Hugging Face classifier. With `--max-instances=5` the service-wide API ceiling is about $5. VirusTotal receives the bare URL (no userinfo, query, or fragment); the scorer never fetches the link. A VirusTotal **URL report** is multi-engine reputation, not a VM. The **sandbox demo** on `/tests` reads VirusTotal’s stored behaviour summary for a known test file; a first-time detonation on their side can take several minutes, which is why that page has a timer and a disclaimer and is kept off the Gmail scorer.
 
-**Also later:** Workspace Marketplace listing; tighter per-user quotas; richer attachment sandboxing; a larger held-out phishing corpus; optional SIEM export without storing full bodies.
+**Also later:** Workspace Marketplace listing; tighter per-user quotas; a larger held-out phishing corpus; optional SIEM export without storing full bodies.
 
 ---
 
@@ -228,7 +232,8 @@ The sample CSV (`backend/eval/sample_emails.csv`) is a fast smoke set; `corpus_v
 1. Backend reachable (local demo or Cloud Run `/health`).
 2. Add-on installed as a Gmail test deployment with Script properties set.
 3. Open a known-good mail, a credential-phishing sample, and a malware-link sample — show score, reasons, checklist, and Report / Block.
-4. If `ENABLE_DEEP_SCAN` is on, the sidebar can show **Check link reputation** (young domain or unknown shortener). Leave it off on default Cloud Run.
+4. If `ENABLE_DEEP_SCAN` is on, the sidebar can show **Check these links** (young domain or unknown shortener). That is URL reputation, not a sandbox.
+5. Open `/tests` on the Cloud Run URL for the hard-test write-up and the optional sandbox timer. Paste an API key if the server requires one. The page stays put when the sandbox finishes.
 
 ---
 

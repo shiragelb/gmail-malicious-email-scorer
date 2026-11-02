@@ -42,17 +42,91 @@
     button { font: inherit; border-radius: 999px; border: 1px solid var(--line); background: #fff; padding: 8px 14px; cursor: pointer; }
     button.primary { background: var(--ink); color: white; border-color: var(--ink); }
     button:disabled { opacity: 0.6; cursor: wait; }
-    .score { font-size: 56px; line-height: 1; letter-spacing: -0.04em; margin: 0; }
-    .score span { font-size: 18px; color: var(--muted); letter-spacing: 0; }
-    .verdict { display: inline-block; margin-top: 10px; padding: 4px 10px; border-radius: 999px; font-weight: 700; }
+    .score { font-size: 72px; line-height: 0.95; letter-spacing: -0.05em; margin: 0; font-weight: 750; }
+    .score span { font-size: 20px; color: var(--muted); letter-spacing: 0; font-weight: 500; }
+    .verdict { display: inline-flex; align-items: center; gap: 8px; margin-top: 12px; padding: 6px 14px; border-radius: 999px; font-weight: 700; font-size: 16px; }
     .safe { color: var(--safe); background: var(--safe-bg); }
     .suspicious { color: var(--suspicious); background: var(--suspicious-bg); }
     .malicious { color: var(--malicious); background: var(--malicious-bg); }
+    .summary { font-size: 16px; margin: 14px 0 0; }
+    .block-title { margin: 22px 0 8px; font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+    .link-row, .check-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 12px 14px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      margin-top: 8px;
+      background: #fbfcfd;
+    }
+    .dot {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      flex: 0 0 16px;
+      margin-top: 3px;
+      box-shadow: inset 0 0 0 3px #fff;
+    }
+    .dot.pass { background: var(--safe); }
+    .dot.warn { background: var(--suspicious); }
+    .dot.fail { background: var(--malicious); }
+    .dot.skip { background: #9aa8b5; }
+    .link-host, .check-label { font-weight: 700; }
+    .link-why, .check-detail { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
+    .tip { margin-top: 16px; padding: 12px 14px; border-radius: 14px; background: var(--paper); color: var(--muted); font-size: 13px; }
     ul { margin: 12px 0 0; padding-left: 18px; }
     li { margin: 6px 0; }
     .trust { color: var(--safe); }
     .note { color: var(--muted); }
     .qa { margin-top: 12px; color: var(--muted); font-size: 13px; }
+    .think {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 12px;
+    }
+    .think-face {
+      font-size: 28px;
+      line-height: 1;
+      animation: think-bob 1.2s ease-in-out infinite;
+    }
+    .think-copy { flex: 1; min-width: 0; }
+    .think-copy strong { display: block; }
+    .think-bar {
+      margin-top: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #e8eef3;
+      overflow: hidden;
+    }
+    .think-bar span {
+      display: block;
+      height: 100%;
+      width: 38%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #8bb4ff, #ffc56d, #8bb4ff);
+      background-size: 200% 100%;
+      animation: think-slide 1.1s ease-in-out infinite;
+    }
+    .think-circle {
+      width: 22px;
+      height: 22px;
+      flex: 0 0 22px;
+      border: 3px solid #d5deea;
+      border-top-color: #6d92ff;
+      border-radius: 50%;
+      animation: think-spin 0.75s linear infinite;
+    }
+    @keyframes think-spin { to { transform: rotate(360deg); } }
+    @keyframes think-bob {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-3px); }
+    }
+    @keyframes think-slide {
+      0% { transform: translateX(-40%); }
+      100% { transform: translateX(220%); }
+    }
     .hidden { display: none; }
     .error { color: var(--malicious); }
     @media (max-width: 800px) {
@@ -63,8 +137,9 @@
 <body>
   <header>
     <h1>Malicious Email Scorer</h1>
-    <p class="lede">Paste a message, or load one of the three QA scenarios. The score uses authentication headers, sender identity, link reputation, and the wording of the mail.</p>
+    <p class="lede">Paste a message, or open the hard tests. Those tests stay on their own page and do not dump you back here.</p>
     <p class="providers" id="providers">Checking which feeds are configured…</p>
+    <p class="providers"><a href="/tests">Hard tests — what they are, and that they passed →</a></p>
   </header>
   <main>
     <form id="composer">
@@ -99,10 +174,22 @@
       <div id="output" class="hidden">
         <p class="score" id="score">0 <span>/ 100</span></p>
         <div class="verdict safe" id="verdict">Safe</div>
-        <p id="summary"></p>
+        <p class="summary" id="summary"></p>
         <ul id="reasons"></ul>
-        <ul id="mitigations"></ul>
+        <div class="block-title">Links in this email</div>
+        <div id="links"></div>
+        <div class="block-title">What we checked</div>
+        <div id="checks"></div>
+        <div id="mitigations"></div>
         <p class="qa" id="deep-scan-copy"></p>
+        <div class="think hidden" id="deep-scan-think" aria-live="polite">
+          <div class="think-face" aria-hidden="true">🤔</div>
+          <div class="think-copy">
+            <strong>Sniffing those links…</strong>
+            <div class="think-bar"><span></span></div>
+          </div>
+          <div class="think-circle" aria-hidden="true"></div>
+        </div>
         <div class="actions" id="deep-scan-actions"></div>
         <p class="qa" id="qa"></p>
       </div>
@@ -120,6 +207,23 @@
     const scoreButton = document.querySelector("#score-button");
 
     function field(id) { return document.getElementById(id); }
+
+    function statusRow(status, title, detail, kind) {
+      const row = document.createElement("div");
+      row.className = kind === "check" ? "check-row" : "link-row";
+      const dot = document.createElement("span");
+      dot.className = "dot " + (status || "pass");
+      const copy = document.createElement("div");
+      const heading = document.createElement("div");
+      heading.className = kind === "check" ? "check-label" : "link-host";
+      heading.textContent = title;
+      const why = document.createElement("p");
+      why.className = kind === "check" ? "check-detail" : "link-why";
+      why.textContent = detail;
+      copy.append(heading, why);
+      row.append(dot, copy);
+      return row;
+    }
 
     function fill(email) {
       field("from-display").value = email.from_display || "";
@@ -158,25 +262,55 @@
         item.className = reason.polarity || "";
         reasons.appendChild(item);
       }
+      const links = field("links");
+      links.replaceChildren();
+      const extracted = (((result.layers || {}).urls || {}).extracted) || [];
+      const matches = (((result.layers || {}).urls || {}).matches) || [];
+      const seen = new Set();
+      extracted.forEach((raw) => {
+        let host = "";
+        try { host = new URL(raw).hostname.replace(/^www\./, ""); } catch { return; }
+        if (!host || seen.has(host)) return;
+        seen.add(host);
+        const hit = matches.find((item) => String(item.url || "").toLowerCase().includes(host.toLowerCase()));
+        const status = hit ? (hit.confirmed === false ? "warn" : "fail") : "pass";
+        links.appendChild(statusRow(status, host, hit ? (hit.detail || "Flagged by a threat list.") : "Clear — nothing flagged", "link"));
+      });
+      if (!seen.size) {
+        links.appendChild(statusRow("skip", "No links", "Nothing to scan in this message.", "link"));
+      }
+      const checks = field("checks");
+      checks.replaceChildren();
+      for (const check of result.checks || []) {
+        if ((check.id === "pictures" || check.id === "files") && check.status === "skip") continue;
+        if (check.id === "links" && seen.size) continue;
+        checks.appendChild(statusRow(check.status || "pass", check.label || "Check", check.detail || "", "check"));
+      }
       const mitigations = field("mitigations");
       mitigations.replaceChildren();
-      for (const step of result.mitigations || []) {
-        const item = document.createElement("li");
-        item.textContent = step;
-        mitigations.appendChild(item);
+      const tip = document.createElement("p");
+      tip.className = "tip";
+      if ((result.verdict || "Safe") === "Safe") {
+        tip.textContent = "A score is a guide, not a promise. Pause if a message asks you to change payment details or open an unexpected file.";
+      } else {
+        tip.textContent = (result.mitigations || []).slice(0, 2).join(" ");
       }
+      mitigations.appendChild(tip);
       const deep = result.deep_scan || {};
       const deepCopy = field("deep-scan-copy");
+      const deepThink = field("deep-scan-think");
       const deepActions = field("deep-scan-actions");
       deepActions.replaceChildren();
       pendingScanId = deep.scan_id || "";
-      if (deep.status === "pending" && deep.scan_id) {
-        deepCopy.textContent = "The reputation check is still running. Tap Refresh in a minute.";
-        const refresh = document.createElement("button");
-        refresh.type = "button";
-        refresh.textContent = "Refresh";
-        refresh.addEventListener("click", () => refreshDeepScan());
-        deepActions.appendChild(refresh);
+      const waiting = deep.status === "pending" && deep.scan_id;
+      deepThink.classList.add("hidden");
+      if (waiting) {
+        deepCopy.textContent = "Link scanners did not finish in time. The local score still stands. You can try again.";
+        const peek = document.createElement("button");
+        peek.type = "button";
+        peek.textContent = "Keep looking";
+        peek.addEventListener("click", () => continueDeepScan());
+        deepActions.appendChild(peek);
       } else if (deep.paused) {
         deepCopy.textContent = "On-demand checks are paused until the daily limit resets. The local score still stands.";
       } else if (deep.available) {
@@ -232,24 +366,46 @@
       }
     }
 
+    async function waitForDeepScan(result) {
+      let n = 0;
+      while (result && result.deep_scan && result.deep_scan.status === "pending" && result.deep_scan.scan_id && n < 3) {
+        field("deep-scan-think").classList.remove("hidden");
+        field("deep-scan-copy").textContent = "";
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        n += 1;
+        result = await postJson("/v1/deep-scan/result", {
+          scan_id: result.deep_scan.scan_id,
+          email: lastEmail || payload()
+        });
+      }
+      return result;
+    }
+
     async function requestDeepScan() {
       formError.textContent = "";
+      field("deep-scan-think").classList.remove("hidden");
+      field("deep-scan-actions").replaceChildren();
       try {
-        render(await postJson("/v1/deep-scan", lastEmail || payload()));
+        render(await waitForDeepScan(await postJson("/v1/deep-scan", lastEmail || payload())));
       } catch (error) {
         formError.textContent = error.message || "Could not start the reputation check.";
+        field("deep-scan-think").classList.add("hidden");
       }
     }
 
-    async function refreshDeepScan() {
+    async function continueDeepScan() {
       formError.textContent = "";
+      if (!pendingScanId) {
+        return requestDeepScan();
+      }
+      field("deep-scan-think").classList.remove("hidden");
       try {
-        render(await postJson("/v1/deep-scan/result", {
-          scan_id: pendingScanId,
-          email: lastEmail || payload()
+        render(await waitForDeepScan({
+          deep_scan: { status: "pending", scan_id: pendingScanId }
         }));
       } catch (error) {
-        formError.textContent = error.message || "Could not refresh the reputation check.";
+        formError.textContent = error.message || "Could not finish the reputation check.";
+        field("deep-scan-think").classList.add("hidden");
       }
     }
 
@@ -272,15 +428,14 @@
       const presets = field("presets");
       for (const scenario of items) {
         scenarios.set(scenario.id, scenario);
-        const button = document.createElement("button");
-        button.type = "button";
-        button.textContent = "Scenario " + scenario.id + ": " + scenario.title;
-        button.addEventListener("click", () => {
-          fill(scenario.email);
-          score(scenario.email, scenario);
-        });
-        presets.appendChild(button);
       }
+      const lab = document.createElement("button");
+      lab.type = "button";
+      lab.textContent = "Hard tests (stay on results page)";
+      lab.addEventListener("click", () => {
+        window.location.href = "/tests";
+      });
+      presets.appendChild(lab);
     });
   </script>
 </body>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,7 +11,7 @@ import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import ValidationError
 
 from app.account_tokens import firebase_configured, mint_user_token
@@ -20,18 +21,26 @@ from app.firebase_auth import verify_firebase_id_token
 from app.budget import ledger
 from app.layers.deep_scan import (
     BudgetPaused,
+    SANDBOX_DISCLAIMER,
+    ScanItem,
+    UrlReputation,
+    canned_sandbox_email,
+    collect_sandbox,
     deep_scan_configured,
     extract_bare_urls,
     interpret_reports,
+    interpret_sandbox,
+    lookup_url_reports,
     mint_scan_token,
     parse_scan_token,
-    poll_analyses,
+    sandbox_configured,
     submit_urls,
+    wait_for_analyses,
 )
 from app.layers.domain_age import lookups_enabled, whois_available
 from app.pipeline import analyze_email
 from app.scenarios import SCENARIOS
-from app.schemas import AnalysisResponse, DeepScanResultRequest, EmailInput
+from app.schemas import AnalysisResponse, DeepScanResultRequest, EmailInput, Finding
 from app.security import (
     NonceStore,
     RateLimiter,
@@ -42,6 +51,7 @@ from app.security import (
 )
 
 _DEMO = Path(__file__).resolve().parent / "static" / "demo.html"
+_TESTS = Path(__file__).resolve().parent / "static" / "tests.html"
 _QUIET_LOGGERS = (
     "uvicorn.access",
     "httpx",
@@ -108,13 +118,16 @@ app = FastAPI(
 
 @app.middleware("http")
 async def _security_headers(request: Request, call_next):
-    response = await call_next(request)
     path = request.url.path
+    if request.method == "OPTIONS" and path == "/v1/demo/sandbox":
+        response = Response(status_code=204)
+    else:
+        response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-    if path == "/":
+    if path in ("/", "/tests"):
         response.headers.setdefault("Content-Security-Policy", _DEMO_CSP)
     elif path == "/docs":
         response.headers.setdefault("Content-Security-Policy", _DOCS_CSP)
@@ -122,6 +135,10 @@ async def _security_headers(request: Request, call_next):
         response.headers.setdefault("Content-Security-Policy", _API_CSP)
     if path.startswith("/v1/"):
         response.headers["Cache-Control"] = "no-store"
+    if path in {"/tests", "/v1/demo/sandbox"}:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "X-API-Key, Content-Type"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
 
@@ -168,6 +185,7 @@ def health() -> dict:
             "onnx": settings.use_onnx_classifier,
             "huggingface": bool(settings.use_hf_classifier and settings.hf_token),
             "deep_scan": deep_scan_configured(),
+            "sandbox": sandbox_configured(),
         },
         "budget": ledger().snapshot(),
     }
@@ -177,6 +195,35 @@ def health() -> dict:
 def demo_scenarios() -> list[dict]:
     _require_dev()
     return [scenario.model_dump() for scenario in SCENARIOS]
+
+
+@app.post("/v1/demo/sandbox")
+async def demo_sandbox(
+    request: Request,
+    x_api_key: str | None = Header(default=None),
+) -> dict:
+    """Canned VirusTotal sandbox lookup for the hard-tests page. Not used by the Gmail scorer."""
+    _authorize(x_api_key)
+    if not rate_limiter.allow(caller_key(x_api_key, request), per_minute=get_settings().rate_limit_per_minute):
+        raise HTTPException(status_code=429, detail="Too many requests", headers={"Retry-After": "10"})
+    if not sandbox_configured():
+        raise HTTPException(status_code=503, detail="Sandbox is not configured on this server.")
+    if ledger().optional_paused:
+        raise HTTPException(status_code=503, detail="Optional scans are paused for the daily budget.")
+    http = getattr(request.app.state, "http", None)
+    if http is None:
+        raise HTTPException(status_code=503, detail="Sandbox client is not ready.")
+    started = time.perf_counter()
+    reports, _sandbox_ms, status = await collect_sandbox(canned_sandbox_email(), [], client=http)
+    matches, _notes, evidence = interpret_sandbox(reports)
+    del _sandbox_ms, _notes
+    return {
+        "status": status or "none",
+        "elapsed_ms": max(0, int((time.perf_counter() - started) * 1000)),
+        "malicious": any(match.confirmed for match in matches),
+        "files": evidence.get("files") or [],
+        "disclaimer": SANDBOX_DISCLAIMER,
+    }
 
 
 @app.post("/v1/account/token")
@@ -321,27 +368,50 @@ async def _authorized_json(
 
 
 async def _start_deep_scan(email: EmailInput, *, client: httpx.AsyncClient | None) -> AnalysisResponse:
-    result = await analyze_email(email, client=client)
+    started = time.perf_counter()
     urls = extract_bare_urls(email)
     if not deep_scan_configured() or not urls or client is None:
+        result = await analyze_email(email, client=client, skip_llm=True)
         result.deep_scan.available = False
         result.deep_scan.recommended = False
         return result
     if ledger().optional_paused:
-        return _mark_paused(result)
+        return _mark_paused(await analyze_email(email, client=client, skip_llm=True))
     try:
-        items = await submit_urls(urls, client=client)
+        cached = await lookup_url_reports(urls, client=client)
+        missing = [url for url in urls if url not in {item.bare_url for item in cached}]
+        items = await submit_urls(missing, client=client) if missing else []
     except BudgetPaused:
-        return _mark_paused(result)
+        return _mark_paused(await analyze_email(email, client=client, skip_llm=True))
     except Exception:
+        result = await analyze_email(email, client=client, skip_llm=True)
         result.deep_scan.status = "error"
         result.deep_scan.available = True
         return result
-    result.deep_scan.status = "pending"
-    result.deep_scan.scan_id = mint_scan_token(items)
-    result.deep_scan.available = True
-    result.deep_scan.paused = False
-    return result
+    reports = list(cached)
+    if items:
+        try:
+            status, fresh = await wait_for_analyses(_token_items(items), urls, client=client, attempts=2, delay_s=0.3)
+        except Exception:
+            status, fresh = "error", []
+        reports = _merge_reports(reports, fresh)
+        if status == "error" and not reports:
+            result = await analyze_email(email, client=client, skip_llm=True)
+            result.deep_scan.status = "error"
+            result.deep_scan.available = True
+            return result
+        still = [url for url in urls if url not in {item.bare_url for item in reports}]
+        if still:
+            reports = _merge_reports(reports, await lookup_url_reports(still, client=client))
+    if reports:
+        return await _apply_reputation(
+            email,
+            reports,
+            client=client,
+            scan_id=mint_scan_token(items) if items else "",
+            started=started,
+        )
+    return await _settle_unconfirmed(email, client=client, started=started)
 
 
 async def _finish_deep_scan(
@@ -350,30 +420,43 @@ async def _finish_deep_scan(
     *,
     client: httpx.AsyncClient | None,
 ) -> AnalysisResponse:
+    started = time.perf_counter()
     try:
         token_items = parse_scan_token(scan_id)
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid or expired scan token") from None
     urls = extract_bare_urls(email)
     if client is None:
-        result = await analyze_email(email, client=client)
-        result.deep_scan.status = "pending"
-        result.deep_scan.scan_id = scan_id
-        return result
+        return await _settle_unconfirmed(email, client=None, started=started)
     try:
-        status, reports = await poll_analyses(token_items, urls, client=client)
+        status, reports = await wait_for_analyses(token_items, urls, client=client, attempts=1, delay_s=0.3)
     except Exception:
-        result = await analyze_email(email, client=client)
+        result = await analyze_email(email, client=None)
         result.deep_scan.status = "error"
         result.deep_scan.scan_id = scan_id
         result.deep_scan.available = True
         return result
     if status != "completed":
-        result = await analyze_email(email, client=client)
-        result.deep_scan.status = "pending"
+        reports = _merge_reports(reports, await lookup_url_reports(urls, client=client))
+    if reports:
+        return await _apply_reputation(email, reports, client=client, scan_id=scan_id, started=started)
+    if status == "error":
+        result = await analyze_email(email, client=None)
+        result.deep_scan.status = "error"
         result.deep_scan.scan_id = scan_id
         result.deep_scan.available = True
         return result
+    return await _settle_unconfirmed(email, client=client, started=started)
+
+
+async def _apply_reputation(
+    email: EmailInput,
+    reports,
+    *,
+    client: httpx.AsyncClient | None,
+    scan_id: str,
+    started: float | None = None,
+) -> AnalysisResponse:
     matches, notes, evidence = interpret_reports(reports)
     applied = "confirmed" if any(match.confirmed for match in matches) else "note"
     result = await analyze_email(
@@ -383,12 +466,59 @@ async def _finish_deep_scan(
         extra_findings=notes,
         sandbox_evidence=evidence,
         reputation_applied=applied,
+        skip_llm=True,
     )
     result.deep_scan.status = "complete"
     result.deep_scan.scan_id = scan_id
     result.deep_scan.available = False
     result.deep_scan.recommended = False
+    result.deep_scan.paused = False
+    if started is not None:
+        result.deep_scan.elapsed_ms = max(0, int((time.perf_counter() - started) * 1000))
     return result
+
+
+async def _settle_unconfirmed(
+    email: EmailInput,
+    *,
+    client: httpx.AsyncClient | None,
+    started: float | None = None,
+) -> AnalysisResponse:
+    result = await analyze_email(
+        email,
+        client=client,
+        extra_findings=[
+            Finding(
+                layer="url",
+                code="deep_scan_note",
+                polarity="note",
+                text="On-demand scanners did not finish in time. The local score still stands.",
+                points=0,
+            )
+        ],
+        reputation_applied="timeout",
+        skip_llm=True,
+    )
+    result.deep_scan.status = "complete"
+    result.deep_scan.scan_id = ""
+    result.deep_scan.available = False
+    result.deep_scan.recommended = False
+    result.deep_scan.paused = False
+    if started is not None:
+        result.deep_scan.elapsed_ms = max(0, int((time.perf_counter() - started) * 1000))
+    return result
+
+
+def _token_items(items: list[ScanItem]) -> list[dict]:
+    return [{"h": item.url_hash, "a": item.analysis_id} for item in items]
+
+
+def _merge_reports(*groups: list[UrlReputation]) -> list[UrlReputation]:
+    by_url: dict[str, UrlReputation] = {}
+    for group in groups:
+        for report in group:
+            by_url[report.bare_url] = report
+    return list(by_url.values())
 
 
 def _mark_paused(result: AnalysisResponse) -> AnalysisResponse:
@@ -404,6 +534,11 @@ def _mark_paused(result: AnalysisResponse) -> AnalysisResponse:
 def demo_page() -> FileResponse:
     _require_dev()
     return FileResponse(_DEMO)
+
+
+@app.get("/tests")
+def tests_page() -> FileResponse:
+    return FileResponse(_TESTS)
 
 
 @app.get("/openapi.json", include_in_schema=False)

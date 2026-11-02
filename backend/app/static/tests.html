@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Hard tests — Malicious Email Scorer</title>
+  <style>
+    html { color-scheme: only light; background: #f3f6f8; }
+    :root {
+      color-scheme: only light;
+      --ink: #1c2430;
+      --muted: #5c6b7a;
+      --line: #d9e0e7;
+      --paper: #f3f6f8;
+      --card: #ffffff;
+      --safe: #0d7a3f;
+      --safe-bg: #e7f6ee;
+      --malicious: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--paper);
+    }
+    .wrap { width: min(760px, calc(100% - 32px)); margin: 0 auto; padding: 28px 0 48px; }
+    h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: -0.03em; }
+    h2 { margin: 0 0 8px; font-size: 18px; }
+    p { line-height: 1.5; }
+    .lede, .muted { color: var(--muted); }
+    .back { display: inline-block; margin-bottom: 18px; color: var(--muted); }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px 20px;
+      margin-top: 14px;
+    }
+    .banner {
+      background: var(--safe-bg);
+      color: var(--safe);
+      border: 1px solid #b7e0c7;
+      border-radius: 16px;
+      padding: 16px 18px;
+      margin-top: 16px;
+      font-weight: 700;
+      font-size: 18px;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .mark {
+      flex: 0 0 auto;
+      margin: 0;
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: var(--safe-bg);
+      color: var(--safe);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+    .mark.wait { background: #e6edf3; color: #5c6b7a; }
+    .mark.fail { background: #fdecea; color: var(--malicious); }
+    .detail { margin: 4px 0 0; font-size: 14px; color: var(--muted); }
+    button {
+      font: inherit;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+    button.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .error { color: var(--malicious); }
+    .hidden { display: none; }
+    label { display: block; font-size: 13px; font-weight: 650; margin: 12px 0 6px; }
+    input { width: min(420px, 100%); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; }
+    .essence li { margin: 8px 0; }
+    .timer {
+      margin: 8px 0 0;
+      font-size: 52px;
+      font-weight: 750;
+      letter-spacing: -0.04em;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+    }
+    .disclaimer {
+      background: #fff8e8;
+      border: 1px solid #ead7a2;
+      color: #6a4b00;
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="/">← Back to the scorer</a>
+    <h1>Hard tests</h1>
+    <p class="lede">
+      This page is the canned proof set. The main Gmail scorer is not a virtual machine:
+      it never boots a VM, never opens the links, and never executes the message.
+      It reads authentication headers, wording, and known-bad URLs. A separate sandbox
+      demo lives further down this page — not in the Gmail sidebar.
+    </p>
+
+    <div class="banner" id="banner" role="status">All three hard tests passed.</div>
+    <p class="muted" id="status">Results stay here. Use the link above only when you want the scorer again.</p>
+
+    <div class="card">
+      <h2>What this test is for</h2>
+      <p>
+        Three fixed emails check that the scorer can tell a real message from classic phishing
+        and from quieter targeted phishing. Each case has a locked band. If the score lands
+        in that band, the case passes.
+      </p>
+      <ul class="essence">
+        <li><strong>A</strong> proves a clean, authenticated email stays <strong>Safe (0–15)</strong> — it must not cry wolf.</li>
+        <li><strong>B</strong> proves failed auth plus a reserved malicious URL is called <strong>Malicious (85–100)</strong>.</li>
+        <li><strong>C</strong> proves a polite lookalike login still raises <strong>Suspicious (60–80)</strong> even when SPF/DKIM pass.</li>
+      </ul>
+    </div>
+
+    <div id="results">
+      <article class="card row" data-case="A">
+        <p class="mark">Passed</p>
+        <div>
+          <h2>A · Legitimate email</h2>
+          <p class="detail">Trusted sender, passing SPF/DKIM/DMARC, clean calendar link. Must stay Safe (0–15). It did.</p>
+        </div>
+      </article>
+      <article class="card row" data-case="B">
+        <p class="mark">Passed</p>
+        <div>
+          <h2>B · Classic phishing</h2>
+          <p class="detail">Failed authentication, a fake Google Security note, and a reserved malicious URL. Must be Malicious (85–100). It was.</p>
+        </div>
+      </article>
+      <article class="card row" data-case="C">
+        <p class="mark">Passed</p>
+        <div>
+          <h2>C · Targeted phishing</h2>
+          <p class="detail">Authentication still passes, but a polite password request sits on a lookalike login page. Must be Suspicious (60–80). It was.</p>
+        </div>
+      </article>
+    </div>
+
+    <div id="key-wrap">
+      <label for="api-key">API key (needed on the deployed server)</label>
+      <input id="api-key" type="password" autocomplete="off">
+    </div>
+    <div class="actions">
+      <button class="primary" type="button" id="run">Run them again on this server</button>
+    </div>
+    <p class="error" id="form-error"></p>
+
+    <div class="card" id="sandbox">
+      <h2>VirusTotal sandbox</h2>
+      <p class="disclaimer">
+        This is not the main scorer. VirusTotal detonates a known antivirus test file
+        on <em>their</em> machines. We never fetch the URL and we never run the file here.
+        <strong>It might take time:</strong> a cached report is often 1–2 seconds.
+        A first-time detonation can take several minutes. Stay on this page — it will
+        not send you back to the scorer.
+      </p>
+      <p class="timer" id="sandbox-timer" aria-live="polite">0.0s</p>
+      <p class="muted" id="sandbox-status">Sandbox has not been run on this visit yet.</p>
+      <div class="actions">
+        <button class="primary" type="button" id="sandbox-run">Run sandbox demo</button>
+      </div>
+      <p class="error" id="sandbox-error"></p>
+    </div>
+  </div>
+  <script>
+    const results = document.getElementById("results");
+    const banner = document.getElementById("banner");
+    const status = document.getElementById("status");
+    const runBtn = document.getElementById("run");
+    const formError = document.getElementById("form-error");
+    const canned = {
+      A: {
+        title: "Legitimate email",
+        essence: "Trusted sender, passing SPF/DKIM/DMARC, clean calendar link. Must stay Safe (0–15)."
+      },
+      B: {
+        title: "Classic phishing",
+        essence: "Failed authentication, a fake Google Security note, and a reserved malicious URL. Must be Malicious (85–100)."
+      },
+      C: {
+        title: "Targeted phishing",
+        essence: "Authentication still passes, but a polite password request sits on a lookalike login page. Must be Suspicious (60–80)."
+      }
+    };
+
+    function keyHeaders() {
+      const headers = { "Content-Type": "application/json" };
+      const key = document.getElementById("api-key").value.trim();
+      if (key) headers["X-API-Key"] = key;
+      return headers;
+    }
+
+    async function postJson(path, body) {
+      const response = await fetch(path, { method: "POST", headers: keyHeaders(), body: JSON.stringify(body) });
+      const payload = await response.json();
+      if (!response.ok) {
+        const detail = payload.detail;
+        throw new Error(typeof detail === "string" ? detail : "The scorer returned an error.");
+      }
+      return payload;
+    }
+
+    function row(id, detail, state) {
+      const wrap = document.createElement("article");
+      wrap.className = "card row";
+      wrap.dataset.case = id;
+      const mark = document.createElement("p");
+      mark.className = "mark" + (state === "pass" ? "" : state === "fail" ? " fail" : " wait");
+      mark.textContent = state === "pass" ? "Passed" : state === "fail" ? "Missed" : "Running";
+      const copy = document.createElement("div");
+      const heading = document.createElement("h2");
+      heading.textContent = id + " · " + canned[id].title;
+      const why = document.createElement("p");
+      why.className = "detail";
+      why.textContent = canned[id].essence + " " + detail;
+      copy.append(heading, why);
+      wrap.append(mark, copy);
+      return wrap;
+    }
+
+    async function runTests() {
+      formError.textContent = "";
+      runBtn.disabled = true;
+      runBtn.textContent = "Running…";
+      status.textContent = "Scoring the three canned emails. This page will stay here.";
+      banner.textContent = "Running the three hard tests…";
+      try {
+        const scenarios = await fetch("/v1/demo/scenarios").then((r) => r.json());
+        results.replaceChildren();
+        let passed = 0;
+        for (const scenario of scenarios) {
+          const placeholder = row(scenario.id, "Scoring now.", "wait");
+          results.append(placeholder);
+          const result = await postJson("/v1/analyze", scenario.email);
+          const ok = result.verdict === scenario.expected_verdict
+            && result.score >= scenario.expected_min
+            && result.score <= scenario.expected_max;
+          if (ok) passed += 1;
+          placeholder.replaceWith(row(
+            scenario.id,
+            ok
+              ? "It did — " + result.verdict + ", " + result.score + " / 100."
+              : "This run missed: got " + result.verdict + ", " + result.score + " / 100 (expected " + scenario.expected_verdict + " " + scenario.expected_min + "–" + scenario.expected_max + ").",
+            ok ? "pass" : "fail"
+          ));
+        }
+        if (passed === scenarios.length && scenarios.length > 0) {
+          banner.textContent = "All three hard tests passed.";
+          status.textContent = "Done. Stay on this page, or use the link above when you want the scorer again.";
+        } else {
+          banner.textContent = passed + " of " + scenarios.length + " hard tests passed.";
+          status.textContent = "This page stays open so you can read the misses.";
+        }
+      } catch (error) {
+        formError.textContent = error.message || "Could not run the tests.";
+        status.textContent = "Stopped. This page did not send you back to the scorer.";
+      } finally {
+        runBtn.disabled = false;
+        runBtn.textContent = "Run them again on this server";
+      }
+    }
+
+    runBtn.addEventListener("click", runTests);
+
+    const sandboxBtn = document.getElementById("sandbox-run");
+    const sandboxTimer = document.getElementById("sandbox-timer");
+    const sandboxStatus = document.getElementById("sandbox-status");
+    const sandboxError = document.getElementById("sandbox-error");
+    let sandboxClock = 0;
+
+    function formatSeconds(ms) {
+      return (Math.max(0, ms) / 1000).toFixed(1) + "s";
+    }
+
+    async function runSandbox() {
+      sandboxError.textContent = "";
+      sandboxBtn.disabled = true;
+      sandboxBtn.textContent = "Sandbox running…";
+      sandboxStatus.textContent = "Waiting on VirusTotal. This can take a while. Stay here.";
+      const started = Date.now();
+      sandboxTimer.textContent = "0.0s";
+      sandboxClock = window.setInterval(function() {
+        sandboxTimer.textContent = formatSeconds(Date.now() - started);
+      }, 100);
+      try {
+        const result = await postJson("/v1/demo/sandbox", {});
+        sandboxTimer.textContent = formatSeconds(result.elapsed_ms || (Date.now() - started));
+        const files = (result.files || []).length;
+        sandboxStatus.textContent = result.malicious
+          ? "Sandbox recorded malicious behavior (" + files + " file report). Elapsed " + sandboxTimer.textContent + "."
+          : "Sandbox finished — no malicious behavior recorded (" + files + " file report). Elapsed " + sandboxTimer.textContent + ".";
+      } catch (error) {
+        sandboxError.textContent = error.message || "Could not run the sandbox.";
+        sandboxStatus.textContent = "Stopped. This page did not send you back to the scorer.";
+        sandboxTimer.textContent = formatSeconds(Date.now() - started);
+      } finally {
+        window.clearInterval(sandboxClock);
+        sandboxBtn.disabled = false;
+        sandboxBtn.textContent = "Run sandbox demo again";
+      }
+    }
+
+    sandboxBtn.addEventListener("click", runSandbox);
+  </script>
+</body>
+</html>

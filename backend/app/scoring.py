@@ -22,6 +22,8 @@ _UI_SKIP_CODES = frozenset(
         "hash_intel_unavailable",
         "deep_scan_paused",
         "deep_scan_note",
+        "sandbox_note",
+        "sandbox_forbidden",
     }
 )
 
@@ -240,8 +242,9 @@ def mitigations_for(
         ]
     else:
         items = [
-            "Still pause if a message asks you to change payment details or open a surprising file.",
+            "A score is a guide, not a promise. Pause if it asks you to change payment details or open an unexpected file.",
         ]
+        return items[:1]
     items.append("This is a helpful check, not a guarantee.")
     return items[:3]
 
@@ -346,6 +349,8 @@ def _public_text(item: Finding) -> str:
         return ""
     if item.code.startswith("intel_"):
         return "A security list has already flagged a link or file in this message as dangerous."
+    if item.code == "sandbox_hit" or "virustotal-sandbox" in blob:
+        return "A VirusTotal sandbox recorded malicious behavior from a file."
     if item.code == "deep_scan_paused":
         return ""
     if item.code == "spoofing":
@@ -394,6 +399,7 @@ def build_checks(
     wording_severe: bool = False,
     wording_credential: bool = False,
     reputation_applied: str = "",
+    findings: list[Finding] | None = None,
 ) -> list[CheckItem]:
     """Plain-language checklist of what the scorer looked at."""
     checks: list[CheckItem] = []
@@ -425,38 +431,6 @@ def build_checks(
                 status="warn",
             )
         )
-    # #region agent log
-    try:
-        import json
-        import time
-        from pathlib import Path
-
-        _log = Path(__file__).resolve().parents[2] / "debug-9947bd.log"
-        with _log.open("a", encoding="utf-8") as _fh:
-            _fh.write(
-                json.dumps(
-                    {
-                        "sessionId": "9947bd",
-                        "runId": "pre-fix",
-                        "hypothesisId": "E",
-                        "location": "scoring.py:build_checks",
-                        "message": "sender check row chosen",
-                        "data": {
-                            "auth_passed": flags.auth_passed,
-                            "auth_failed": flags.auth_failed,
-                            "spoofing": flags.spoofing,
-                            "sender_status": checks[0].status,
-                            "sender_detail": checks[0].detail,
-                        },
-                        "timestamp": int(time.time() * 1000),
-                    },
-                    ensure_ascii=True,
-                )
-                + "\n"
-            )
-    except Exception:
-        pass
-    # #endregion
 
     if url_count <= 0:
         checks.append(
@@ -581,6 +555,46 @@ def build_checks(
                 id="reputation",
                 label="Link reputation",
                 detail="On-demand scanners reviewed the links. No confirmed hit.",
+                status="pass",
+            )
+        )
+    elif reputation_applied == "timeout":
+        checks.append(
+            CheckItem(
+                id="reputation",
+                label="Link reputation",
+                detail="On-demand scanners did not finish in time. The local score still stands.",
+                status="skip",
+            )
+        )
+
+    codes = {item.code for item in findings or []}
+    if "sandbox_hit" in codes or any(
+        getattr(item, "text", "").find("sandbox recorded malicious") >= 0 for item in findings or []
+    ):
+        checks.append(
+            CheckItem(
+                id="sandbox",
+                label="Sandbox",
+                detail="VirusTotal sandbox recorded malicious behavior from a file.",
+                status="fail",
+            )
+        )
+    elif "sandbox_forbidden" in codes:
+        checks.append(
+            CheckItem(
+                id="sandbox",
+                label="Sandbox",
+                detail="Sandbox reports are not included on this VirusTotal key.",
+                status="skip",
+            )
+        )
+    elif "sandbox_note" in codes:
+        checks.append(
+            CheckItem(
+                id="sandbox",
+                label="Sandbox",
+                detail="VirusTotal sandbox ran. No malicious behavior recorded.",
                 status="pass",
             )
         )

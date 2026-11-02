@@ -51,6 +51,75 @@ footer {
 
 .top {
   padding: 1.25rem 1.5rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.nav {
+  margin: 0;
+}
+
+.passed-banner {
+  display: inline-block;
+  margin: 0 0 1rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 999px;
+  background: #d7eedf;
+  color: #0f3d28;
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+.test-pass {
+  margin-bottom: 1.5rem;
+}
+
+.test-pass .mark {
+  margin: 0 0 0.35rem;
+  color: var(--leaf);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+}
+
+.test-pass h2 {
+  margin: 0 0 0.35rem;
+}
+
+.disclaimer {
+  background: #fff8e8;
+  border: 1px solid #ead7a2;
+  color: #6a4b00;
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+
+.timer {
+  margin: 0.75rem 0 0.35rem;
+  font-family: var(--font-display);
+  font-size: clamp(2.4rem, 6vw, 3.4rem);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+label {
+  display: block;
+  margin: 0.85rem 0 0.35rem;
+  font-weight: 600;
+}
+
+input[type="password"] {
+  width: min(28rem, 100%);
+  border: 1px solid var(--sand);
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+  font: inherit;
 }
 
 .brand {

@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     onnx_usd_per_call: float = 0.0
 
     enable_deep_scan: bool = False
+    enable_sandbox: bool = True
+    sandbox_wait_seconds: float = 0.0
+    sandbox_max_files: int = 2
     deep_scan_malicious_threshold: int = 3
     deep_scan_max_urls: int = 3
     deep_scan_per_hour: int = 6
